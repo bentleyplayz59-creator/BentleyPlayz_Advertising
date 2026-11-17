@@ -16,11 +16,11 @@
       "MailVariations": [
         {
           "Title": "A note from JojaMart",
-          "Body": "Hello! JojaMart has the supplies you need for your farm. We hope to see you soon.\\n\\n- JojaMart"
+          "Body": "Dear Customer,\\n\\nThank you for shopping with JojaMart. We hope to see you again soon.\\n\\n- JojaMart"
         },
         {
-          "Title": "A note from JojaMart",
-          "Body": "Hello! JojaMart has the supplies you need for your farm. We hope to see you soon.\\n\\n- JojaMart"
+          "Title": "A message from JojaMart",
+          "Body": "Dear Customer,\\n\\nWhether you need seeds or everyday supplies, JojaMart is ready to help.\\n\\n- JojaMart"
         }
       ]
     },
@@ -40,11 +40,11 @@
       "MailVariations": [
         {
           "Title": "A note from Robin",
-          "Body": "Hi! If you need a new farm building or an upgrade, please stop by the Carpenter's Shop.\\n\\n- Robin"
+          "Body": "Hello!\\n\\nIf you are planning a new farm building or an upgrade, stop by the Carpenter's Shop. I would be happy to help.\\n\\n- Robin"
         },
         {
-          "Title": "A note from Robin",
-          "Body": "Hi! If you need a new farm building or an upgrade, please stop by the Carpenter's Shop.\\n\\n- Robin"
+          "Title": "A message from Robin",
+          "Body": "Hi there!\\n\\nLet me know if your farm needs a new building or an improvement. You can find me at the Carpenter's Shop.\\n\\n- Robin"
         }
       ]
     },
@@ -64,11 +64,11 @@
       "MailVariations": [
         {
           "Title": "A note from Sandy",
-          "Body": "Hello from the Oasis! Please visit when you're next in the desert.\\n\\n- Sandy"
+          "Body": "Hello from the Oasis!\\n\\nIf your travels bring you to the Calico Desert, please stop by and say hello.\\n\\n- Sandy"
         },
         {
-          "Title": "A note from Sandy",
-          "Body": "Hello from the Oasis! Please visit when you're next in the desert.\\n\\n- Sandy"
+          "Title": "A message from Sandy",
+          "Body": "Hi there!\\n\\nI would love to see you next time you visit the desert. Come by the Oasis whenever you can.\\n\\n- Sandy"
         }
       ]
     },
@@ -88,11 +88,11 @@
       "MailVariations": [
         {
           "Title": "A note from Pierre",
-          "Body": "Hello! Please visit the General Store for seeds and farm supplies.\\n\\n- Pierre"
+          "Body": "Hello!\\n\\nThe General Store has seeds and supplies for your farm. I hope you will stop by soon.\\n\\n- Pierre"
         },
         {
-          "Title": "A note from Pierre",
-          "Body": "Hello! Please visit the General Store for seeds and farm supplies.\\n\\n- Pierre"
+          "Title": "A message from Pierre",
+          "Body": "Dear Farmer,\\n\\nPlanning for the next season? Visit the General Store to see our selection of seeds and farm supplies.\\n\\n- Pierre"
         }
       ]
     },
@@ -112,11 +112,11 @@
       "MailVariations": [
         {
           "Title": "A note from Harvey",
-          "Body": "Hello! The clinic is here whenever you need medical care. Please take care.\\n\\n- Harvey"
+          "Body": "Hello,\\n\\nThe clinic is here whenever you need medical care. Please take care of yourself.\\n\\n- Harvey"
         },
         {
-          "Title": "A note from Harvey",
-          "Body": "Hello! The clinic is here whenever you need medical care. Please take care.\\n\\n- Harvey"
+          "Title": "A message from Harvey",
+          "Body": "Hello,\\n\\nIf you have any health concerns, please feel free to visit the clinic. I am always glad to help.\\n\\n- Harvey"
         }
       ]
     },
@@ -136,11 +136,11 @@
       "MailVariations": [
         {
           "Title": "A note from Willy",
-          "Body": "Ahoy! Stop by the Fish Shop before your next fishing trip.\\n\\n- Willy"
+          "Body": "Ahoy!\\n\\nIf you are getting ready for a fishing trip, stop by the Fish Shop for your supplies.\\n\\n- Willy"
         },
         {
-          "Title": "A note from Willy",
-          "Body": "Ahoy! Stop by the Fish Shop before your next fishing trip.\\n\\n- Willy"
+          "Title": "A message from Willy",
+          "Body": "Ahoy, there!\\n\\nThe Fish Shop is open for your fishing needs. Stop by before your next trip out on the water.\\n\\n- Willy"
         }
       ]
     },
@@ -160,11 +160,11 @@
       "MailVariations": [
         {
           "Title": "A note from Marnie",
-          "Body": "Howdy! Visit the ranch if you'd like to add animals to your farm.\\n\\n- Marnie"
+          "Body": "Howdy!\\n\\nIf you are thinking about raising animals on your farm, come visit me at the ranch.\\n\\n- Marnie"
         },
         {
-          "Title": "A note from Marnie",
-          "Body": "Howdy! Visit the ranch if you'd like to add animals to your farm.\\n\\n- Marnie"
+          "Title": "A message from Marnie",
+          "Body": "Hello!\\n\\nThe ranch has animals and supplies to help your farm grow. Stop by when you have a chance.\\n\\n- Marnie"
         }
       ]
     },
@@ -184,11 +184,11 @@
       "MailVariations": [
         {
           "Title": "A note from Clint",
-          "Body": "Hello! Bring your geodes by, or visit if you'd like a tool upgrade.\\n\\n- Clint"
+          "Body": "Hello,\\n\\nBring any geodes you find to the Blacksmith, or stop by if you need a tool upgrade.\\n\\n- Clint"
         },
         {
-          "Title": "A note from Clint",
-          "Body": "Hello! Bring your geodes by, or visit if you'd like a tool upgrade.\\n\\n- Clint"
+          "Title": "A message from Clint",
+          "Body": "Hi there,\\n\\nIf your tools could use an upgrade, come see me at the Blacksmith. I can also crack open any geodes you have found.\\n\\n- Clint"
         }
       ]
     },
@@ -208,11 +208,11 @@
       "MailVariations": [
         {
           "Title": "A note from Gus",
-          "Body": "Hello! Please stop by the Saloon whenever you'd like a freshly prepared meal.\\n\\n- Gus"
+          "Body": "Hello!\\n\\nIf you are looking for a good meal, stop by the Stardrop Saloon. I will be happy to cook for you.\\n\\n- Gus"
         },
         {
-          "Title": "A note from Gus",
-          "Body": "Hello! Please stop by the Saloon whenever you'd like a freshly prepared meal.\\n\\n- Gus"
+          "Title": "A message from Gus",
+          "Body": "Hello there!\\n\\nThe Saloon is always a welcoming place to enjoy a meal. I hope to see you soon.\\n\\n- Gus"
         }
       ]
     },
@@ -232,11 +232,11 @@
       "MailVariations": [
         {
           "Title": "A note from the Hat Mouse",
-          "Body": "Hello, hello! Stop by my little shop if you'd like a new hat.\\n\\n- Hat Mouse"
+          "Body": "Hello, hello!\\n\\nIf you are looking for a new hat, come visit my little shop. There may be something you like!\\n\\n- Hat Mouse"
         },
         {
-          "Title": "A note from the Hat Mouse",
-          "Body": "Hello, hello! Stop by my little shop if you'd like a new hat.\\n\\n- Hat Mouse"
+          "Title": "A message from the Hat Mouse",
+          "Body": "Pssst!\\n\\nThere is always room for another hat in your collection. Come see what is available at my shop!\\n\\n- Hat Mouse"
         }
       ]
     },
@@ -256,11 +256,11 @@
       "MailVariations": [
         {
           "Title": "A note from the Desert Trader",
-          "Body": "Greetings! Please visit my stall the next time you're in the desert.\\n\\n- Desert Trader"
+          "Body": "Greetings, traveler.\\n\\nWhen you next visit the Calico Desert, please stop by my stall and see what I have to offer.\\n\\n- Desert Trader"
         },
         {
-          "Title": "A note from the Desert Trader",
-          "Body": "Greetings! Please visit my stall the next time you're in the desert.\\n\\n- Desert Trader"
+          "Title": "A message from the Desert Trader",
+          "Body": "Good day, traveler.\\n\\nI have wares worth a look at my stall. I hope you will visit during your next trip to the desert.\\n\\n- Desert Trader"
         }
       ]
     }
