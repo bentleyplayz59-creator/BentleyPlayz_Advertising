@@ -168,8 +168,10 @@ public sealed class ModEntry : Mod
     private bool IsAdvertiserUnlocked(Advertiser advertiser) =>
         advertiser.UnlockCondition.ToLowerInvariant() switch
         {
-            "bus" => Game1.MasterPlayer.mailReceived.Contains("ccVault"),
-            "communitycenter" => Game1.MasterPlayer.mailReceived.Contains("ccComplete"),
+            "bus" => Game1.MasterPlayer.mailReceived.Contains("ccVault")
+                || Game1.MasterPlayer.mailReceived.Contains("jojaVault"),
+            "communitycenter" => Game1.MasterPlayer.mailReceived.Contains("ccIsComplete"),
+            "mines" or "mine" or "guild" => Game1.MasterPlayer.mailReceived.Contains("guildQuest"),
             _ => true
         };
 
