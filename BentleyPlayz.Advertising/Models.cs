@@ -8,6 +8,15 @@ public sealed class ModConfig
     public bool EnableMail { get; set; } = true;
     public bool EnableSubscriptions { get; set; } = true;
     public string PopupCorner { get; set; } = "TopRight";
+
+    /// <summary>Shows the on-screen countdown used to verify that popups fire on schedule.</summary>
+    public bool ShowDebugTimer { get; set; } = true;
+
+    /// <summary>Distance in UI pixels from the right edge of the screen to the left edge of the AD button.</summary>
+    public int HudButtonOffsetFromRight { get; set; } = 372;
+
+    /// <summary>Distance in UI pixels from the top of the screen to the top of the AD button.</summary>
+    public int HudButtonOffsetFromTop { get; set; } = 20;
 }
 
 public sealed class AdvertisementData

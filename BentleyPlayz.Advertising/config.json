@@ -4,5 +4,8 @@
   "EnablePopups": true,
   "EnableMail": true,
   "EnableSubscriptions": true,
-  "PopupCorner": "TopRight"
+  "PopupCorner": "TopRight",
+  "ShowDebugTimer": true,
+  "HudButtonOffsetFromRight": 372,
+  "HudButtonOffsetFromTop": 20
 }
