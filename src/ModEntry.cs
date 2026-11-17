@@ -113,7 +113,7 @@ public sealed class ModEntry : Mod
 
     private static int GetAbsoluteGameDay()
     {
-        return (Game1.Date.Year * 112) + (Game1.Date.SeasonIndex * 28) + Game1.Date.DayOfMonth;
+        return Game1.Date.TotalDays;
     }
 
     private void ShowRandomAdvertisement()
