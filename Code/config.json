@@ -1,0 +1,8 @@
+{
+  "Enabled": true,
+  "AdvertisementIntervalMinutes": 5,
+  "EnablePopups": true,
+  "EnableMail": true,
+  "EnableSubscriptions": true,
+  "MailChancePerDay": 0.2
+}
