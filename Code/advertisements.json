@@ -1,0 +1,101 @@
+{
+  "Advertisers": [
+    {
+      "Id": "JojaMart",
+      "DisplayName": "JOJA MART",
+      "UnlockCondition": "Always",
+      "PopupVariations": [
+        "Visit JojaMart today!",
+        "JojaMart: convenient shopping for a busy farmer.",
+        "Looking for great deals? Stop by JojaMart!",
+        "Make today a JojaMart shopping day.",
+        "Your local JojaMart is ready for your business.",
+        "Don't forget to check JojaMart's shelves.",
+        "JojaMart: come see what's in store!"
+      ],
+      "MailVariations": [
+        {
+          "Title": "A message from JojaMart",
+          "Body": "Hello, valued customer!\n\nWhy not visit JojaMart today? We look forward to seeing you.\n\n- JojaMart"
+        }
+      ]
+    },
+    {
+      "Id": "Robin",
+      "DisplayName": "ROBIN'S CARPENTRY",
+      "UnlockCondition": "Always",
+      "PopupVariations": [
+        "Thinking about a new barn? Visit Robin!",
+        "Your farm could use an upgrade. Ask Robin!",
+        "Robin's Carpentry: building a better farm.",
+        "Need more room? Robin can help.",
+        "Make your farm dreams a reality at Robin's shop.",
+        "A new coop could be waiting for you!",
+        "Visit Robin's Carpenter Shop today."
+      ],
+      "MailVariations": [
+        {
+          "Title": "A note from Robin",
+          "Body": "Hi there!\n\nIf you're thinking about expanding your farm, stop by the Carpenter Shop. I'd be happy to help.\n\n- Robin"
+        }
+      ]
+    },
+    {
+      "Id": "Sandy",
+      "DisplayName": "SANDY'S OASIS",
+      "UnlockCondition": "Bus",
+      "PopupVariations": [
+        "Take a trip to the Oasis and see Sandy!",
+        "The desert is calling. Visit Sandy today!",
+        "Looking for something different? Stop by the Oasis.",
+        "Sandy has something waiting for you.",
+        "Make your next stop the Calico Desert!",
+        "Visit the Oasis for a change of scenery.",
+        "Sandy welcomes you to the shop!"
+      ],
+      "MailVariations": [
+        {
+          "Title": "A hello from Sandy",
+          "Body": "Hi there!\n\nIf you're ever in the desert, come visit me at the Oasis. I'd love to see you!\n\n- Sandy"
+        }
+      ]
+    }
+  ],
+  "SubscriptionOffers": [
+    {
+      "Id": "QuickBreak",
+      "DisplayName": "Quick Break",
+      "Price": 500,
+      "DurationMinutes": 60,
+      "Description": "Turn off advertisements for 1 real-world hour."
+    },
+    {
+      "Id": "ExtendedBreak",
+      "DisplayName": "Extended Break",
+      "Price": 1500,
+      "DurationMinutes": 180,
+      "Description": "Turn off advertisements for 3 real-world hours."
+    },
+    {
+      "Id": "LongBreak",
+      "DisplayName": "Long Break",
+      "Price": 3000,
+      "DurationMinutes": 360,
+      "Description": "Turn off advertisements for 6 real-world hours."
+    },
+    {
+      "Id": "FullDay",
+      "DisplayName": "Full Day",
+      "Price": 5000,
+      "DurationMinutes": 1440,
+      "Description": "Turn off advertisements for 24 real-world hours."
+    },
+    {
+      "Id": "MonthlyPass",
+      "DisplayName": "Monthly Pass",
+      "Price": 25000,
+      "DurationInGameDays": 28,
+      "Description": "Turn off advertisements for 28 in-game days."
+    }
+  ]
+}
