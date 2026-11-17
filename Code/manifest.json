@@ -1,0 +1,9 @@
+{
+  "Name": "Bentley's Advertising",
+  "Author": "Bentley Playz",
+  "Version": "0.1.0",
+  "Description": "Randomized town advertisements, promotional mail, and optional ad-free subscriptions.",
+  "UniqueID": "BentleyPlayz.Advertising",
+  "EntryDll": "BentleyPlayz.Advertising.dll",
+  "MinimumApiVersion": "4.3.0"
+}
