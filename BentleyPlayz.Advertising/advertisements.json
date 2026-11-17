@@ -217,54 +217,6 @@
       ]
     },
     {
-      "Id": "Dwarf",
-      "DisplayName": "DWARF'S SHOP",
-      "UnlockCondition": "Mines",
-      "PopupVariations": [
-        "Explore the mines and visit the Dwarf's shop.",
-        "The Dwarf has unusual wares for curious miners.",
-        "Found your way down the mines? Stop by the Dwarf.",
-        "Discover a different kind of shop underground.",
-        "The Dwarf's collection is worth a look.",
-        "Visit the Dwarf during your next mining trip.",
-        "Something unusual may be waiting in the mines."
-      ],
-      "MailVariations": [
-        {
-          "Title": "A note from DWARFS SHOP",
-          "Body": "Greetings, surface-dweller.\\n\\nVisit my shop during your next trip through the mines.\\n\\n- The Dwarf"
-        },
-        {
-          "Title": "A note from DWARFS SHOP",
-          "Body": "Hello.\\n\\nI have unusual goods for those who know where to look. Come visit my shop.\\n\\n- The Dwarf"
-        }
-      ]
-    },
-    {
-      "Id": "AdventurersGuild",
-      "DisplayName": "ADVENTURERS' GUILD",
-      "UnlockCondition": "Mine",
-      "PopupVariations": [
-        "Visit the Adventurers' Guild for adventuring supplies.",
-        "The Guild is a useful stop after exploring the mines.",
-        "Check in with Marlon at the Adventurers' Guild.",
-        "Need equipment for your next expedition? Visit the Guild.",
-        "The Adventurers' Guild welcomes local explorers.",
-        "Stop by the Guild after a day in the mines.",
-        "Get ready for your next adventure at the Guild."
-      ],
-      "MailVariations": [
-        {
-          "Title": "A note from ADVENTURERS GUILD",
-          "Body": "Hello, explorer!\\n\\nStop by the Adventurers' Guild after your next trip to the mines.\\n\\n- Marlon"
-        },
-        {
-          "Title": "A note from ADVENTURERS GUILD",
-          "Body": "Greetings!\\n\\nThe Guild is here to support local explorers. Visit when you have a moment.\\n\\n- Marlon"
-        }
-      ]
-    },
-    {
       "Id": "HatMouse",
       "DisplayName": "HAT MOUSE",
       "UnlockCondition": "Always",
