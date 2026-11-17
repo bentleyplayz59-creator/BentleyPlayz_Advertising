@@ -12,4 +12,8 @@
   <ItemGroup>
     <PackageReference Include="Pathoschild.Stardew.ModBuildConfig" Version="4.4.0" />
   </ItemGroup>
+  <ItemGroup>
+    <None Update="config.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="advertisements.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>
