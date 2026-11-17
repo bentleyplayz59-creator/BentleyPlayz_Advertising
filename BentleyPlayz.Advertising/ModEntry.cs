@@ -66,7 +66,7 @@ public sealed class ModEntry : Mod
                 for (int i = 0; i < advertiser.MailVariations.Count; i++)
                 {
                     MailVariation mail = advertiser.MailVariations[i];
-                    DynamicMail[GetMailId(advertiser.Id, i)] = $"{mail.Title}^ {mail.Body.Replace("\\\\n", "\\n")}";
+                    DynamicMail[GetMailId(advertiser.Id, i)] = $"{mail.Title}^ {mail.Body.Replace("\\n", "\n")}";
                 }
             }
 
@@ -227,17 +227,17 @@ public sealed class ModEntry : Mod
             return;
         }
 
-        int y = MenuBounds.Y + 76;
+        int y = MenuBounds.Y + 82;
         foreach (SubscriptionOffer offer in Ads.SubscriptionOffers)
         {
-            Rectangle row = new(MenuBounds.X + 16, y, MenuBounds.Width - 32, 48);
+            Rectangle row = new(MenuBounds.X + 16, y, MenuBounds.Width - 32, 58);
             if (row.Contains(cursor))
             {
                 PurchaseOffer(offer);
                 Helper.Input.Suppress(e.Button);
                 return;
             }
-            y += 58;
+            y += 68;
         }
     }
 
@@ -379,9 +379,9 @@ public sealed class ModEntry : Mod
         double elapsed = AdClock.Elapsed.TotalSeconds;
         double remaining = Math.Max(0, interval - (elapsed % interval));
         bool paused = IsAdFree();
-        string elapsedText = TimeSpan.FromSeconds(elapsed % interval).ToString(@"mm\:ss");
-        string remainingText = TimeSpan.FromSeconds(remaining).ToString(@"mm\:ss");
-        string line1 = $"AD DEBUG  {elapsedText} / {TimeSpan.FromSeconds(interval):mm\\:ss}";
+        string elapsedText = TimeSpan.FromSeconds(elapsed % interval).ToString(@"mm:ss");
+        string remainingText = TimeSpan.FromSeconds(remaining).ToString(@"mm:ss");
+        string line1 = $"AD DEBUG  {elapsedText} / {TimeSpan.FromSeconds(interval):mm\:ss}";
         string line2 = paused ? "Advertisements paused" : $"Next popup in {remainingText}";
         int width = 238;
         int height = 58;
