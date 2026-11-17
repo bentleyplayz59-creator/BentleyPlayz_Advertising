@@ -1,0 +1,7 @@
+{
+  "Enabled": true,
+  "AdvertisementIntervalMinutes": 5,
+  "EnablePopups": true,
+  "EnableMail": true,
+  "EnableSubscriptions": true
+}

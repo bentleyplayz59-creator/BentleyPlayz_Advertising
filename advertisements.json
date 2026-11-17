@@ -1,0 +1,32 @@
+{
+  "Advertisers": [],
+  "Letters": [],
+  "PopupVariations": [],
+  "SubscriptionOffers": [
+    {
+      "Id": "QuickBreak",
+      "Price": 500,
+      "DurationMinutes": 60
+    },
+    {
+      "Id": "ExtendedBreak",
+      "Price": 1500,
+      "DurationMinutes": 180
+    },
+    {
+      "Id": "WeekendSpecial",
+      "Price": 3000,
+      "DurationMinutes": 360
+    },
+    {
+      "Id": "FullDay",
+      "Price": 5000,
+      "DurationMinutes": 1440
+    },
+    {
+      "Id": "MonthlyPass",
+      "Price": 25000,
+      "DurationInGameDays": 28
+    }
+  ]
+}
