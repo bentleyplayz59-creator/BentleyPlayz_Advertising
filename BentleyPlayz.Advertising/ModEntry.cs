@@ -66,7 +66,7 @@ public sealed class ModEntry : Mod
                 for (int i = 0; i < advertiser.MailVariations.Count; i++)
                 {
                     MailVariation mail = advertiser.MailVariations[i];
-                    DynamicMail[GetMailId(advertiser.Id, i)] = $"{mail.Title}^ {mail.Body}";
+                    DynamicMail[GetMailId(advertiser.Id, i)] = $"{mail.Title}^ {mail.Body.Replace("\\\\n", "\\n")}";
                 }
             }
 
@@ -293,6 +293,8 @@ public sealed class ModEntry : Mod
 
         if (MenuOpen && Config.EnableSubscriptions)
             DrawSubscriptionMenu(b);
+
+        DrawDebugTimer(b);
     }
 
     private void DrawAdvertisementPopup(SpriteBatch b)
@@ -345,7 +347,9 @@ public sealed class ModEntry : Mod
     private void DrawSubscriptionMenu(SpriteBatch b)
     {
         int width = Math.Min(440, Game1.uiViewport.Width - 24);
-        int height = 100 + Ads.SubscriptionOffers.Count * 58;
+        int rowHeight = 58;
+        int rowSpacing = 10;
+        int height = 112 + Ads.SubscriptionOffers.Count * (rowHeight + rowSpacing);
         MenuBounds = new Rectangle((Game1.uiViewport.Width - width) / 2,
             (Game1.uiViewport.Height - height) / 2, width, height);
 
@@ -356,17 +360,35 @@ public sealed class ModEntry : Mod
             IsAdFree() ? "Advertisements are currently paused." : "Choose an offer to pause advertisements.",
             new Vector2(MenuBounds.X + 18, MenuBounds.Y + 48), Color.White);
 
-        int y = MenuBounds.Y + 76;
+        int y = MenuBounds.Y + 82;
         foreach (SubscriptionOffer offer in Ads.SubscriptionOffers)
         {
-            Rectangle row = new(MenuBounds.X + 16, y, MenuBounds.Width - 32, 48);
+            Rectangle row = new(MenuBounds.X + 16, y, MenuBounds.Width - 32, rowHeight);
             DrawPanel(b, row, new Color(67, 77, 91, 245));
             b.DrawString(Game1.smallFont, $"{offer.DisplayName} - {offer.Price:N0}g",
-                new Vector2(row.X + 10, row.Y + 5), Color.White);
-            b.DrawString(Game1.smallFont, offer.Description,
-                new Vector2(row.X + 10, row.Y + 25), Color.LightGray);
-            y += 58;
+                new Vector2(row.X + 10, row.Y + 4), Color.White);
+            b.DrawString(Game1.tinyFont, offer.Description,
+                new Vector2(row.X + 10, row.Y + 34), Color.LightGray);
+            y += rowHeight + rowSpacing;
         }
+    }
+
+    private void DrawDebugTimer(SpriteBatch b)
+    {
+        double interval = Math.Max(1, Config.AdvertisementIntervalMinutes) * 60d;
+        double elapsed = AdClock.Elapsed.TotalSeconds;
+        double remaining = Math.Max(0, interval - (elapsed % interval));
+        bool paused = IsAdFree();
+        string elapsedText = TimeSpan.FromSeconds(elapsed % interval).ToString(@"mm\:ss");
+        string remainingText = TimeSpan.FromSeconds(remaining).ToString(@"mm\:ss");
+        string line1 = $"AD DEBUG  {elapsedText} / {TimeSpan.FromSeconds(interval):mm\\:ss}";
+        string line2 = paused ? "Advertisements paused" : $"Next popup in {remainingText}";
+        int width = 238;
+        int height = 58;
+        Rectangle panel = new((Game1.uiViewport.Width - width) / 2, 12, width, height);
+        DrawPanel(b, panel, new Color(25, 30, 38, 220));
+        b.DrawString(Game1.smallFont, line1, new Vector2(panel.X + 9, panel.Y + 5), Color.Gold);
+        b.DrawString(Game1.tinyFont, line2, new Vector2(panel.X + 9, panel.Y + 34), Color.White);
     }
 
     private static void DrawPanel(SpriteBatch b, Rectangle area, Color color) =>
