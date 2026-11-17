@@ -5,18 +5,22 @@
       "DisplayName": "JOJA MART",
       "UnlockCondition": "Always",
       "PopupVariations": [
-        "Visit JojaMart today!",
         "JojaMart: convenient shopping for a busy farmer.",
-        "Looking for great deals? Stop by JojaMart!",
+        "Looking for supplies? Stop by JojaMart!",
         "Make today a JojaMart shopping day.",
         "Your local JojaMart is ready for your business.",
         "Don't forget to check JojaMart's shelves.",
-        "JojaMart: come see what's in store!"
+        "Visit JojaMart and see what's in store!",
+        "JojaMart: your shopping trip starts here."
       ],
       "MailVariations": [
         {
-          "Title": "A message from JojaMart",
-          "Body": "Hello, valued customer!\n\nWhy not visit JojaMart today? We look forward to seeing you.\n\n- JojaMart"
+          "Title": "A note from JOJA MART",
+          "Body": "Hello, valued customer!\\n\\nWhy not visit JojaMart today? We look forward to seeing you.\\n\\n- JojaMart"
+        },
+        {
+          "Title": "A note from JOJA MART",
+          "Body": "A quick note from JojaMart: our shelves are ready for your next shopping trip. Stop by whenever you need supplies.\\n\\n- JojaMart"
         }
       ]
     },
@@ -29,14 +33,18 @@
         "Your farm could use an upgrade. Ask Robin!",
         "Robin's Carpentry: building a better farm.",
         "Need more room? Robin can help.",
-        "Make your farm dreams a reality at Robin's shop.",
+        "Make your farm dreams a reality at the Carpenter Shop.",
         "A new coop could be waiting for you!",
         "Visit Robin's Carpenter Shop today."
       ],
       "MailVariations": [
         {
-          "Title": "A note from Robin",
-          "Body": "Hi there!\n\nIf you're thinking about expanding your farm, stop by the Carpenter Shop. I'd be happy to help.\n\n- Robin"
+          "Title": "A note from ROBINS CARPENTRY",
+          "Body": "Hi there!\\n\\nIf you're thinking about expanding your farm, stop by the Carpenter Shop. I'd be happy to help.\\n\\n- Robin"
+        },
+        {
+          "Title": "A note from ROBINS CARPENTRY",
+          "Body": "Hello!\\n\\nA new building or an upgrade can make farm life easier. Come by the Carpenter Shop if you need anything.\\n\\n- Robin"
         }
       ]
     },
@@ -55,8 +63,252 @@
       ],
       "MailVariations": [
         {
-          "Title": "A hello from Sandy",
-          "Body": "Hi there!\n\nIf you're ever in the desert, come visit me at the Oasis. I'd love to see you!\n\n- Sandy"
+          "Title": "A note from SANDYS OASIS",
+          "Body": "Hi there!\\n\\nIf you're ever in the desert, come visit me at the Oasis. I'd love to see you!\\n\\n- Sandy"
+        },
+        {
+          "Title": "A note from SANDYS OASIS",
+          "Body": "Hello from the desert!\\n\\nNext time you're in Calico Desert, stop by the Oasis and say hello.\\n\\n- Sandy"
+        }
+      ]
+    },
+    {
+      "Id": "Pierre",
+      "DisplayName": "PIERRE'S GENERAL STORE",
+      "UnlockCondition": "Always",
+      "PopupVariations": [
+        "Need seeds for the season? Pierre has you covered.",
+        "Stop by Pierre's for seeds and farm supplies.",
+        "Pierre's General Store is ready for your next visit.",
+        "Planning your next crop? Check Pierre's shelves.",
+        "Your local general store is just around the corner.",
+        "Visit Pierre for seeds, snacks, and more.",
+        "A new season means new seeds at Pierre's!"
+      ],
+      "MailVariations": [
+        {
+          "Title": "A note from PIERRES GENERAL STORE",
+          "Body": "Hello!\\n\\nThe General Store has seeds and supplies ready for your farm. I hope to see you soon!\\n\\n- Pierre"
+        },
+        {
+          "Title": "A note from PIERRES GENERAL STORE",
+          "Body": "Hi farmer!\\n\\nPlanning your next season? Stop by the shop and see what's available.\\n\\n- Pierre"
+        }
+      ]
+    },
+    {
+      "Id": "Harvey",
+      "DisplayName": "HARVEY'S CLINIC",
+      "UnlockCondition": "Always",
+      "PopupVariations": [
+        "Harvey's Clinic is here when you need a checkup.",
+        "Remember to visit Harvey's Clinic for your health needs.",
+        "Harvey is available at the clinic in town.",
+        "Take care of yourself with a visit to Harvey.",
+        "The clinic is open for your healthcare needs.",
+        "Need medical attention? Harvey can help.",
+        "Harvey's Clinic: caring for Pelican Town."
+      ],
+      "MailVariations": [
+        {
+          "Title": "A note from HARVEYS CLINIC",
+          "Body": "Hello!\\n\\nJust a reminder that the clinic is here if you need medical care. Take good care of yourself.\\n\\n- Harvey"
+        },
+        {
+          "Title": "A note from HARVEYS CLINIC",
+          "Body": "Hi there!\\n\\nYour health matters. Feel free to stop by the clinic if you have any concerns.\\n\\n- Harvey"
+        }
+      ]
+    },
+    {
+      "Id": "Willy",
+      "DisplayName": "WILLY'S FISH SHOP",
+      "UnlockCondition": "Always",
+      "PopupVariations": [
+        "Willy's Fish Shop has fishing supplies ready.",
+        "Need bait or tackle? Visit Willy by the beach.",
+        "Cast off with supplies from Willy's shop.",
+        "Willy can help you get ready for your next fishing trip.",
+        "Visit the beach and stop by Willy's Fish Shop.",
+        "A fishing trip starts with the right supplies.",
+        "Check out Willy's shop for your fishing needs."
+      ],
+      "MailVariations": [
+        {
+          "Title": "A note from WILLYS FISH SHOP",
+          "Body": "Ahoy!\\n\\nIf you're preparing for a fishing trip, come by the shop. I've got supplies ready.\\n\\n- Willy"
+        },
+        {
+          "Title": "A note from WILLYS FISH SHOP",
+          "Body": "Hello, friend!\\n\\nThe water is always waiting. Stop by my shop before your next fishing trip.\\n\\n- Willy"
+        }
+      ]
+    },
+    {
+      "Id": "Marnie",
+      "DisplayName": "MARNIE'S RANCH",
+      "UnlockCondition": "Always",
+      "PopupVariations": [
+        "Marnie's Ranch has animals for your farm.",
+        "Thinking about chickens? Visit Marnie's Ranch.",
+        "Your farm could use a new friend from Marnie's.",
+        "Stop by Marnie's for animal supplies.",
+        "Marnie's Ranch is ready to help your farm grow.",
+        "Visit Marnie for livestock and farm essentials.",
+        "Bring more life to your farm with Marnie."
+      ],
+      "MailVariations": [
+        {
+          "Title": "A note from MARNIES RANCH",
+          "Body": "Howdy!\\n\\nIf you're thinking of adding animals to your farm, come see me at the ranch.\\n\\n- Marnie"
+        },
+        {
+          "Title": "A note from MARNIES RANCH",
+          "Body": "Hello!\\n\\nI have animals and supplies to help your farm feel more lively. Stop by anytime I'm open.\\n\\n- Marnie"
+        }
+      ]
+    },
+    {
+      "Id": "Clint",
+      "DisplayName": "CLINT'S BLACKSMITH",
+      "UnlockCondition": "Always",
+      "PopupVariations": [
+        "Need tools upgraded? Visit Clint.",
+        "Clint's Blacksmith can help improve your tools.",
+        "Ready for a tool upgrade? Talk to Clint.",
+        "Bring your geodes to Clint's shop.",
+        "Clint is ready to help with your mining finds.",
+        "Visit the Blacksmith for tool services.",
+        "Make your next tool upgrade with Clint."
+      ],
+      "MailVariations": [
+        {
+          "Title": "A note from CLINTS BLACKSMITH",
+          "Body": "Hello!\\n\\nBring by any geodes you find, or ask me about upgrading your tools.\\n\\n- Clint"
+        },
+        {
+          "Title": "A note from CLINTS BLACKSMITH",
+          "Body": "Hi there!\\n\\nIf your tools need an upgrade, come see me at the Blacksmith.\\n\\n- Clint"
+        }
+      ]
+    },
+    {
+      "Id": "Gus",
+      "DisplayName": "GUS'S STARDROP SALOON",
+      "UnlockCondition": "Always",
+      "PopupVariations": [
+        "Stop by Gus's for a freshly cooked meal.",
+        "Need a bite to eat? Gus has a table ready.",
+        "Gus's kitchen is serving up tasty meals.",
+        "Take a break and enjoy a meal at the Saloon.",
+        "Visit Gus for a delicious town favorite.",
+        "Good food and a friendly welcome await at Gus's.",
+        "Make dinner easy with a visit to Gus."
+      ],
+      "MailVariations": [
+        {
+          "Title": "A note from GUSS STARDROP SALOON",
+          "Body": "Hello!\\n\\nIf you're hungry, stop by the Saloon. I'll be happy to prepare a meal for you.\\n\\n- Gus"
+        },
+        {
+          "Title": "A note from GUSS STARDROP SALOON",
+          "Body": "Hi friend!\\n\\nCome by for a freshly prepared meal and a little time to relax.\\n\\n- Gus"
+        }
+      ]
+    },
+    {
+      "Id": "Dwarf",
+      "DisplayName": "DWARF'S SHOP",
+      "UnlockCondition": "Mines",
+      "PopupVariations": [
+        "Explore the mines and visit the Dwarf's shop.",
+        "The Dwarf has unusual wares for curious miners.",
+        "Found your way down the mines? Stop by the Dwarf.",
+        "Discover a different kind of shop underground.",
+        "The Dwarf's collection is worth a look.",
+        "Visit the Dwarf during your next mining trip.",
+        "Something unusual may be waiting in the mines."
+      ],
+      "MailVariations": [
+        {
+          "Title": "A note from DWARFS SHOP",
+          "Body": "Greetings, surface-dweller.\\n\\nVisit my shop during your next trip through the mines.\\n\\n- The Dwarf"
+        },
+        {
+          "Title": "A note from DWARFS SHOP",
+          "Body": "Hello.\\n\\nI have unusual goods for those who know where to look. Come visit my shop.\\n\\n- The Dwarf"
+        }
+      ]
+    },
+    {
+      "Id": "AdventurersGuild",
+      "DisplayName": "ADVENTURERS' GUILD",
+      "UnlockCondition": "Mine",
+      "PopupVariations": [
+        "Visit the Adventurers' Guild for adventuring supplies.",
+        "The Guild is a useful stop after exploring the mines.",
+        "Check in with Marlon at the Adventurers' Guild.",
+        "Need equipment for your next expedition? Visit the Guild.",
+        "The Adventurers' Guild welcomes local explorers.",
+        "Stop by the Guild after a day in the mines.",
+        "Get ready for your next adventure at the Guild."
+      ],
+      "MailVariations": [
+        {
+          "Title": "A note from ADVENTURERS GUILD",
+          "Body": "Hello, explorer!\\n\\nStop by the Adventurers' Guild after your next trip to the mines.\\n\\n- Marlon"
+        },
+        {
+          "Title": "A note from ADVENTURERS GUILD",
+          "Body": "Greetings!\\n\\nThe Guild is here to support local explorers. Visit when you have a moment.\\n\\n- Marlon"
+        }
+      ]
+    },
+    {
+      "Id": "HatMouse",
+      "DisplayName": "HAT MOUSE",
+      "UnlockCondition": "Always",
+      "PopupVariations": [
+        "Looking for a new look? Visit the hat shop.",
+        "A little style goes a long way. Stop by the hat mouse.",
+        "Find a hat that suits your next adventure.",
+        "The hat shop has something for every occasion.",
+        "Visit the abandoned house for a new hat.",
+        "Give your outfit a fresh touch at the hat shop.",
+        "A new hat could be just what you need."
+      ],
+      "MailVariations": [
+        {
+          "Title": "A note from HAT MOUSE",
+          "Body": "Hello, hello!\\n\\nIf you fancy a new hat, come visit my little shop.\\n\\n- Hat Mouse"
+        },
+        {
+          "Title": "A note from HAT MOUSE",
+          "Body": "Pssst!\\n\\nA new hat can make an ordinary day feel special. Come see what I have!\\n\\n- Hat Mouse"
+        }
+      ]
+    },
+    {
+      "Id": "DesertTrader",
+      "DisplayName": "DESERT TRADER",
+      "UnlockCondition": "Bus",
+      "PopupVariations": [
+        "The Desert Trader has wares worth exploring.",
+        "Take a trip to the desert and visit the trader.",
+        "Your next desert visit should include the Desert Trader.",
+        "Discover useful goods at the Desert Trader.",
+        "The Calico Desert has more to explore.",
+        "Stop by the Desert Trader on your next trip.",
+        "Make the most of your desert visit."
+      ],
+      "MailVariations": [
+        {
+          "Title": "A note from DESERT TRADER",
+          "Body": "Greetings, traveler!\\n\\nWhen next you visit the desert, come see what the trader has available.\\n\\n- Desert Trader"
+        },
+        {
+          "Title": "A note from DESERT TRADER",
+          "Body": "Hello from the desert!\\n\\nThere are interesting wares to discover at the Desert Trader. Safe travels!\\n\\n- Desert Trader"
         }
       ]
     }

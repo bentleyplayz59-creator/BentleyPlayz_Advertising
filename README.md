@@ -2,13 +2,27 @@
 
 A Stardew Valley SMAPI mod by Bentley Playz.
 
-## Architecture
-- One main C# DLL.
-- `config.json` stores player settings and is read by SMAPI.
-- `advertisements.json` stores advertiser definitions, popup variations, mail variations, and subscription offers.
+## Features
 
-## Initial source milestone
-This commit establishes the SMAPI project, JSON loading, real-time popup scheduling, a custom HUD button and subscription menu, and save-specific subscription state. Advertising mail and expanded business progression checks are planned for the next milestone.
+- Randomized promotional popups on a real-world timer (five minutes by default).
+- Multiple message variations per advertiser, with consecutive repeats avoided when possible.
+- Randomized advertising letters delivered through the in-game mailbox.
+- Advertisers can be gated behind progression conditions such as the repaired bus.
+- An in-game HUD button opens the subscription menu.
+- Gold purchases pause ads for a real-world duration or a number of in-game days.
+- One main DLL; advertiser copy and variations live in `advertisements.json`.
+
+## Files
+
+- `manifest.json`: SMAPI metadata.
+- `config.json`: player settings.
+- `advertisements.json`: advertiser copy, unlock conditions, and subscription offers.
+- `BentleyPlayz.Advertising.dll`: mod logic.
 
 ## Build
-Build with .NET 6 and Pathoschild.Stardew.ModBuildConfig in an environment with Stardew Valley game files available.
+
+GitHub Actions uses the official Pathoschild SMAPI mod build workflow. It provisions the .NET SDK and Stardew Valley reference assemblies automatically, builds the DLL, creates a release ZIP, and uploads it as a workflow artifact. No game DLLs need to be uploaded to this repository.
+
+## Current testing note
+
+A successful CI build confirms compilation and packaging, but the mod still needs an in-game Android test for UI layout, mailbox delivery, and progression behavior.
