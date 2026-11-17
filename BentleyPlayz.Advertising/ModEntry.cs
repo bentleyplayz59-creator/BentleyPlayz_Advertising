@@ -381,7 +381,8 @@ public sealed class ModEntry : Mod
         bool paused = IsAdFree();
         string elapsedText = TimeSpan.FromSeconds(elapsed % interval).ToString(@"mm:ss");
         string remainingText = TimeSpan.FromSeconds(remaining).ToString(@"mm:ss");
-        string line1 = $"AD DEBUG  {elapsedText} / {TimeSpan.FromSeconds(interval):mm\:ss}";
+        string intervalText = TimeSpan.FromSeconds(interval).ToString(@"mm:ss");
+        string line1 = $"AD DEBUG  {elapsedText} / {intervalText}";
         string line2 = paused ? "Advertisements paused" : $"Next popup in {remainingText}";
         int width = 238;
         int height = 58;
