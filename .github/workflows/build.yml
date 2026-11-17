@@ -1,0 +1,63 @@
+name: Build Bentley's Advertising
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PROJECT: src/BentleyPlayz.Advertising.csproj
+  DLL_NAME: BentleyPlayz.Advertising.dll
+  DLL_DIR: src/bin/Release/net6.0
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 6.0.x
+
+      - name: Set up SMAPI build environment
+        continue-on-error: true
+        uses: Pathoschild/SMAPI-ModBuildWorkflow/add-build-environment@v1
+
+      - name: Restore dependencies
+        run: dotnet restore "$PROJECT"
+
+      - name: Build mod
+        run: dotnet build "$PROJECT" --configuration Release --no-restore
+
+      - name: Validate JSON
+        shell: bash
+        run: |
+          jq empty Code/manifest.json
+          jq empty Code/config.json
+          jq empty Code/advertisements.json
+
+      - name: Prepare release package
+        run: |
+          mkdir -p release/BentleysAdvertising
+          cp Code/manifest.json Code/config.json Code/advertisements.json release/BentleysAdvertising/
+          cp "$DLL_DIR/$DLL_NAME" release/BentleysAdvertising/
+
+      - name: Create ZIP
+        run: |
+          cd release
+          zip -r BentleysAdvertising.zip BentleysAdvertising
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BentleysAdvertising
+          path: release/BentleysAdvertising.zip
+          if-no-files-found: error
