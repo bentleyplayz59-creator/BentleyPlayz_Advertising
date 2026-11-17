@@ -66,7 +66,6 @@ public sealed class ModEntry : Mod
                 for (int i = 0; i < advertiser.MailVariations.Count; i++)
                 {
                     MailVariation mail = advertiser.MailVariations[i];
-                    DynamicMail[GetMailId(advertiser.Id, i)] = $"{mail.Title} %item object 0 0%%";
                     DynamicMail[GetMailId(advertiser.Id, i)] = $"{mail.Title}^ {mail.Body}";
                 }
             }
@@ -158,10 +157,10 @@ public sealed class ModEntry : Mod
         if (alternatives.Count > 0)
             available = alternatives;
 
-        Advertiser advertiser = Game1.random.ChooseFrom(available);
+        Advertiser advertiser = available[Game1.random.Next(available.Count)];
         CurrentAdvertiserId = advertiser.Id;
         CurrentAdvertiser = advertiser.DisplayName;
-        CurrentMessage = Game1.random.ChooseFrom(advertiser.PopupVariations);
+        CurrentMessage = advertiser.PopupVariations[Game1.random.Next(advertiser.PopupVariations.Count)];
         LastAdvertiserId = advertiser.Id;
         PopupSecondsRemaining = 9;
     }
@@ -197,7 +196,7 @@ public sealed class ModEntry : Mod
         if (choices.Count == 0)
             return;
 
-        (Advertiser selected, int variation) = Game1.random.ChooseFrom(choices);
+        (Advertiser selected, int variation) = choices[Game1.random.Next(choices.Count)];
         string id = GetMailId(selected.Id, variation);
         Game1.player.mailForTomorrow.Add(id);
         Helper.GameContent.InvalidateCache("Data/mail");
