@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using StardewModdingAPI;
@@ -11,18 +12,18 @@ namespace BentleyPlayz.Advertising;
 public sealed class ModEntry : Mod
 {
     private const string MailPrefix = "BentleysAdvertising_";
+    private const double PopupDurationSeconds = 9;
+
     private ModConfig Config = new();
     private AdvertisementData Ads = new();
     private readonly Stopwatch AdClock = new();
     private readonly Dictionary<string, string> DynamicMail = new();
-    private string? CurrentAdvertiserId;
     private string? CurrentAdvertiser;
     private string? CurrentMessage;
     private string? LastAdvertiserId;
     private double PopupSecondsRemaining;
-    private bool MenuOpen;
+    private bool PopupPending;
     private Rectangle HudButton;
-    private Rectangle MenuBounds;
     private SubscriptionState Subscription = new();
 
     public override void Entry(IModHelper helper)
@@ -31,6 +32,7 @@ public sealed class ModEntry : Mod
         LoadAdvertisements();
 
         helper.Events.GameLoop.SaveLoaded += OnSaveLoaded;
+        helper.Events.GameLoop.ReturnedToTitle += OnReturnedToTitle;
         helper.Events.GameLoop.Saving += OnSaving;
         helper.Events.GameLoop.UpdateTicked += OnUpdateTicked;
         helper.Events.GameLoop.DayStarted += OnDayStarted;
@@ -38,10 +40,12 @@ public sealed class ModEntry : Mod
         helper.Events.Input.ButtonPressed += OnButtonPressed;
         helper.Events.Content.AssetRequested += OnAssetRequested;
 
-        AdClock.Start();
         Monitor.Log("Bentley's Advertising initialized.", LogLevel.Info);
     }
 
+    /*********
+    ** Data loading
+    *********/
     private void LoadAdvertisements()
     {
         string path = Path.Combine(Helper.DirectoryPath, "advertisements.json");
@@ -66,11 +70,19 @@ public sealed class ModEntry : Mod
                 for (int i = 0; i < advertiser.MailVariations.Count; i++)
                 {
                     MailVariation mail = advertiser.MailVariations[i];
-                    DynamicMail[GetMailId(advertiser.Id, i)] = $"{mail.Title}^ {mail.Body.Replace("\\n", "\n")}";
+                    string id = GetMailId(advertiser.Id, i);
+                    string text = BuildMailText(mail);
+                    DynamicMail[id] = text;
+
+                    // Vanilla letters comfortably fit one page at roughly this length. Longer text risks the
+                    // signature being pushed onto a second page.
+                    int visibleLength = text.Replace("^", "").Length;
+                    if (visibleLength > 260)
+                        Monitor.Log($"Letter {id} is {visibleLength} characters long and may split across pages.", LogLevel.Warn);
                 }
             }
 
-            Monitor.Log($"Loaded {Ads.Advertisers.Count} advertisers and {Ads.SubscriptionOffers.Count} subscription offers.", LogLevel.Info);
+            Monitor.Log($"Loaded {Ads.Advertisers.Count} advertisers, {DynamicMail.Count} letters and {Ads.SubscriptionOffers.Count} subscription offers.", LogLevel.Info);
         }
         catch (Exception ex)
         {
@@ -83,32 +95,76 @@ public sealed class ModEntry : Mod
     private static string GetMailId(string advertiserId, int variationIndex) =>
         $"{MailPrefix}{advertiserId}_{variationIndex + 1}";
 
-    private void OnAssetRequested(object? sender, AssetRequestedEventArgs e)
+    /// <summary>
+    /// Converts a letter from advertisements.json into Stardew's Data/mail format.
+    /// Vanilla uses '^' for line breaks and "[#]Title" for the letter title (the title is NOT part of the body).
+    /// </summary>
+    private static string BuildMailText(MailVariation mail)
     {
-        if (e.NameWithoutLocale.IsEquivalentTo("Data/mail"))
-        {
-            e.Edit(asset =>
-            {
-                IDictionary<string, string> data = asset.AsDictionary<string, string>().Data;
-                foreach (KeyValuePair<string, string> mail in DynamicMail)
-                    data[mail.Key] = mail.Value;
-            });
-        }
+        string body = (mail.Body ?? "").Replace("\r\n", "\n").Replace('\r', '\n');
+
+        // Tolerate literal "\n" text (one or more backslashes followed by n) left over from hand-edited JSON.
+        body = Regex.Replace(body, @"\\+n", "\n");
+        body = Regex.Replace(body, @"[ \t]+\n", "\n");
+        body = Regex.Replace(body, @"\n{3,}", "\n\n").Trim();
+        body = body.Replace("^", "").Replace("\n", "^");
+
+        string title = (mail.Title ?? "").Replace("^", " ").Replace("[#]", "").Trim();
+        return title.Length > 0 ? $"{body}[#]{title}" : body;
     }
 
+    private void OnAssetRequested(object? sender, AssetRequestedEventArgs e)
+    {
+        if (!e.NameWithoutLocale.IsEquivalentTo("Data/mail"))
+            return;
+
+        e.Edit(asset =>
+        {
+            IDictionary<string, string> data = asset.AsDictionary<string, string>().Data;
+            foreach (KeyValuePair<string, string> mail in DynamicMail)
+                data[mail.Key] = mail.Value;
+        });
+    }
+
+    /*********
+    ** Save / lifecycle
+    *********/
     private void OnSaveLoaded(object? sender, SaveLoadedEventArgs e)
     {
         Subscription = Helper.Data.ReadSaveData<SubscriptionState>("subscription-state") ?? new SubscriptionState();
+        ResetPopupState();
         AdClock.Restart();
-        MenuOpen = false;
-        PopupSecondsRemaining = 0;
-        LastAdvertiserId = null;
+    }
+
+    private void OnReturnedToTitle(object? sender, ReturnedToTitleEventArgs e)
+    {
+        ResetPopupState();
+        AdClock.Reset();
     }
 
     private void OnSaving(object? sender, SavingEventArgs e)
     {
         Helper.Data.WriteSaveData("subscription-state", Subscription);
     }
+
+    private void ResetPopupState()
+    {
+        PopupPending = false;
+        PopupSecondsRemaining = 0;
+        CurrentAdvertiser = null;
+        CurrentMessage = null;
+        LastAdvertiserId = null;
+    }
+
+    /*********
+    ** Popup scheduling
+    *********/
+    /// <summary>
+    /// Popups are drawn on the HUD layer, which is hidden during menus and cutscenes. An ad that fires then
+    /// used to count down unseen and expire. Now it waits until the player can actually see it.
+    /// </summary>
+    private static bool CanShowPopupNow() =>
+        Context.IsWorldReady && Game1.activeClickableMenu == null && !Game1.eventUp && Game1.displayHUD;
 
     private void OnUpdateTicked(object? sender, UpdateTickedEventArgs e)
     {
@@ -121,18 +177,36 @@ public sealed class ModEntry : Mod
         if (Subscription.InGameDayExpiry is not null && GetAbsoluteGameDay() >= Subscription.InGameDayExpiry.Value)
             Subscription.InGameDayExpiry = null;
 
-        if (PopupSecondsRemaining > 0)
-            PopupSecondsRemaining = Math.Max(0, PopupSecondsRemaining - Game1.currentGameTime.ElapsedGameTime.TotalSeconds);
-
         if (IsAdFree())
+        {
+            // Start a fresh interval when the subscription ends, and clear anything on screen.
+            AdClock.Restart();
+            PopupPending = false;
+            PopupSecondsRemaining = 0;
             return;
+        }
+
+        if (!AdClock.IsRunning)
+            AdClock.Start();
+
+        bool canShow = CanShowPopupNow();
+
+        // Only count the popup's lifetime down while it can actually be seen.
+        if (PopupSecondsRemaining > 0 && canShow && Game1.currentGameTime is not null)
+            PopupSecondsRemaining = Math.Max(0, PopupSecondsRemaining - Game1.currentGameTime.ElapsedGameTime.TotalSeconds);
 
         double interval = Math.Max(1, Config.AdvertisementIntervalMinutes) * 60d;
         if (AdClock.Elapsed.TotalSeconds >= interval)
         {
             AdClock.Restart();
             if (Config.EnablePopups)
-                ShowRandomAdvertisement();
+                PopupPending = true;
+        }
+
+        if (PopupPending && canShow && PopupSecondsRemaining <= 0)
+        {
+            PopupPending = false;
+            ShowRandomAdvertisement();
         }
     }
 
@@ -146,27 +220,31 @@ public sealed class ModEntry : Mod
     private void ShowRandomAdvertisement()
     {
         List<Advertiser> available = Ads.Advertisers
+            .Where(p => !string.IsNullOrWhiteSpace(p.DisplayName))
             .Where(IsAdvertiserUnlocked)
             .Where(p => p.PopupVariations.Count > 0)
             .ToList();
 
         if (available.Count == 0)
+        {
+            Monitor.Log("A popup was due but no unlocked advertiser has popup text.", LogLevel.Warn);
             return;
+        }
 
         List<Advertiser> alternatives = available.Where(p => p.Id != LastAdvertiserId).ToList();
         if (alternatives.Count > 0)
             available = alternatives;
 
         Advertiser advertiser = available[Game1.random.Next(available.Count)];
-        CurrentAdvertiserId = advertiser.Id;
         CurrentAdvertiser = advertiser.DisplayName;
         CurrentMessage = advertiser.PopupVariations[Game1.random.Next(advertiser.PopupVariations.Count)];
         LastAdvertiserId = advertiser.Id;
-        PopupSecondsRemaining = 9;
+        PopupSecondsRemaining = PopupDurationSeconds;
+        Monitor.Log($"Showing popup from {advertiser.DisplayName}.", LogLevel.Debug);
     }
 
     private bool IsAdvertiserUnlocked(Advertiser advertiser) =>
-        advertiser.UnlockCondition.ToLowerInvariant() switch
+        (advertiser.UnlockCondition ?? "Always").ToLowerInvariant() switch
         {
             "bus" => Game1.MasterPlayer.mailReceived.Contains("ccVault")
                 || Game1.MasterPlayer.mailReceived.Contains("jojaVault"),
@@ -175,6 +253,9 @@ public sealed class ModEntry : Mod
             _ => true
         };
 
+    /*********
+    ** Mail
+    *********/
     private void OnDayStarted(object? sender, DayStartedEventArgs e)
     {
         if (!Context.IsWorldReady || !Config.Enabled || !Config.EnableMail || IsAdFree())
@@ -199,57 +280,41 @@ public sealed class ModEntry : Mod
             return;
 
         (Advertiser selected, int variation) = choices[Game1.random.Next(choices.Count)];
-        string id = GetMailId(selected.Id, variation);
-        Game1.player.mailForTomorrow.Add(id);
-        Helper.GameContent.InvalidateCache("Data/mail");
+        Game1.player.mailForTomorrow.Add(GetMailId(selected.Id, variation));
         Monitor.Log($"Queued an advertising letter from {selected.DisplayName}.", LogLevel.Trace);
     }
 
+    /*********
+    ** Input
+    *********/
+    private bool CanUseHudButton() =>
+        Config.EnableSubscriptions && Context.IsWorldReady && Game1.activeClickableMenu == null
+        && !Game1.eventUp && Game1.displayHUD;
+
     private void OnButtonPressed(object? sender, ButtonPressedEventArgs e)
     {
-        if (!Context.IsWorldReady || e.Button != SButton.MouseLeft)
+        if (!CanUseHudButton() || (e.Button != SButton.MouseLeft && !e.Button.IsUseToolButton()))
             return;
 
-        Point cursor = e.Cursor.ScreenPixels.ToPoint();
-        if (Config.EnableSubscriptions && HudButton.Contains(cursor))
-        {
-            MenuOpen = !MenuOpen;
-            Helper.Input.Suppress(e.Button);
-            return;
-        }
-
-        if (!MenuOpen)
+        // UI-scaled coordinates match the rectangles drawn in RenderedHud (raw ScreenPixels do not on Android/zoomed UI).
+        Point cursor = e.Cursor.GetScaledScreenPixels().ToPoint();
+        if (!HudButton.Contains(cursor))
             return;
 
-        if (!MenuBounds.Contains(cursor))
-        {
-            MenuOpen = false;
-            return;
-        }
-
-        int y = MenuBounds.Y + 82;
-        foreach (SubscriptionOffer offer in Ads.SubscriptionOffers)
-        {
-            Rectangle row = new(MenuBounds.X + 16, y, MenuBounds.Width - 32, 72);
-            if (row.Contains(cursor))
-            {
-                PurchaseOffer(offer);
-                Helper.Input.Suppress(e.Button);
-                return;
-            }
-            y += 80;
-        }
+        Helper.Input.Suppress(e.Button);
+        Game1.playSound("bigSelect");
+        Game1.activeClickableMenu = new SubscriptionMenu(Ads.SubscriptionOffers, IsAdFree, PurchaseOffer);
     }
 
-    private void PurchaseOffer(SubscriptionOffer offer)
+    private bool PurchaseOffer(SubscriptionOffer offer)
     {
         if (!Config.EnableSubscriptions)
-            return;
+            return false;
 
         if (Game1.player.Money < offer.Price)
         {
             Game1.addHUDMessage(new HUDMessage("You don't have enough gold.", HUDMessage.error_type));
-            return;
+            return false;
         }
 
         Game1.player.Money -= offer.Price;
@@ -271,127 +336,142 @@ public sealed class ModEntry : Mod
             Subscription.InGameDayExpiry = start + offer.DurationInGameDays;
         }
 
+        PopupPending = false;
+        PopupSecondsRemaining = 0;
         Game1.addHUDMessage(new HUDMessage($"{offer.DisplayName} purchased!", HUDMessage.achievement_type));
+        return true;
     }
 
+    /*********
+    ** Drawing
+    *********/
     private void OnRenderedHud(object? sender, RenderedHudEventArgs e)
     {
-        if (!Context.IsWorldReady || !Config.Enabled)
+        if (!Context.IsWorldReady || !Config.Enabled || !Game1.displayHUD)
             return;
 
         SpriteBatch b = e.SpriteBatch;
-        HudButton = new Rectangle(Game1.uiViewport.Width - 58, 16, 42, 42);
 
-        if (Config.EnableSubscriptions)
-        {
-            DrawPanel(b, HudButton, new Color(42, 76, 118, 235));
-            b.DrawString(Game1.smallFont, "AD", new Vector2(HudButton.X + 8, HudButton.Y + 11), Color.White);
-        }
-
-        if (PopupSecondsRemaining > 0 && !MenuOpen && CurrentMessage is not null)
-            DrawAdvertisementPopup(b);
-
-        if (MenuOpen && Config.EnableSubscriptions)
-            DrawSubscriptionMenu(b);
-
-        DrawDebugTimer(b);
+        // Keep each element isolated so one failure can never hide the others.
+        SafeDraw(() => DrawHudButton(b), "AD button");
+        SafeDraw(() => DrawAdvertisementPopup(b), "advertisement popup");
+        SafeDraw(() => DrawDebugTimer(b), "debug timer");
     }
+
+    private bool LoggedDrawError;
+
+    private void SafeDraw(Action draw, string what)
+    {
+        try
+        {
+            draw();
+        }
+        catch (Exception ex)
+        {
+            if (LoggedDrawError)
+                return;
+            LoggedDrawError = true;
+            Monitor.Log($"Couldn't draw the {what}: {ex}", LogLevel.Error);
+        }
+    }
+
+    private void DrawHudButton(SpriteBatch b)
+    {
+        HudButton = new Rectangle(
+            Game1.uiViewport.Width - Config.HudButtonOffsetFromRight,
+            Config.HudButtonOffsetFromTop,
+            48, 48);
+
+        if (!CanUseHudButton())
+            return;
+
+        DrawFrame(b, HudButton);
+        const string label = "AD";
+        Vector2 size = Game1.smallFont.MeasureString(label);
+        Utility.drawTextWithShadow(b, label, Game1.smallFont,
+            new Vector2(HudButton.X + (HudButton.Width - size.X) / 2f, HudButton.Y + (HudButton.Height - size.Y) / 2f),
+            Game1.textColor);
+    }
+
+    private static void DrawFrame(SpriteBatch b, Rectangle area) =>
+        StardewValley.Menus.IClickableMenu.drawTextureBox(
+            b, Game1.mouseCursors, new Rectangle(432, 439, 9, 9),
+            area.X, area.Y, area.Width, area.Height, Color.White, 4f, false);
 
     private void DrawAdvertisementPopup(SpriteBatch b)
     {
-        int width = Math.Min(360, Game1.uiViewport.Width - 24);
-        int height = 118;
-        int x = Config.PopupCorner.Equals("TopLeft", StringComparison.OrdinalIgnoreCase)
-            ? 12
-            : Game1.uiViewport.Width - width - 12;
-        int y = Config.PopupCorner.Equals("BottomRight", StringComparison.OrdinalIgnoreCase)
-            || Config.PopupCorner.Equals("BottomLeft", StringComparison.OrdinalIgnoreCase)
-            ? Game1.uiViewport.Height - height - 18
-            : 70;
+        if (PopupSecondsRemaining <= 0 || CurrentMessage is null || !CanShowPopupNow())
+            return;
 
-        Rectangle popup = new(x, y, width, height);
-        DrawPanel(b, popup, new Color(35, 43, 56, 245));
-        b.DrawString(Game1.dialogueFont, CurrentAdvertiser ?? "ADVERTISEMENT",
-            new Vector2(popup.X + 14, popup.Y + 10), Color.Gold);
-        DrawWrappedText(b, CurrentMessage ?? "", Game1.smallFont,
-            new Vector2(popup.X + 14, popup.Y + 48), Color.White, width - 28, 3);
+        const int pad = 28;
+        int width = Math.Min(380, Game1.uiViewport.Width - 24);
+        int textWidth = width - pad * 2;
+
+        string[] lines = Game1.parseText(CurrentMessage, Game1.smallFont, textWidth)
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Take(3)
+            .ToArray();
+
+        string heading = CurrentAdvertiser ?? "ADVERTISEMENT";
+        SpriteFont headingFont = Game1.dialogueFont.MeasureString(heading).X <= textWidth ? Game1.dialogueFont : Game1.smallFont;
+        heading = SubscriptionMenu.TrimToWidth(heading, headingFont, textWidth);
+
+        int headingHeight = headingFont.LineSpacing + 6;
+        int height = pad + headingHeight + lines.Length * Game1.smallFont.LineSpacing + pad;
+
+        bool left = Config.PopupCorner.Contains("Left", StringComparison.OrdinalIgnoreCase);
+        bool bottom = Config.PopupCorner.Contains("Bottom", StringComparison.OrdinalIgnoreCase);
+
+        int x = left ? 12 : Math.Max(12, HudButton.X - 8 - width);
+        int y = bottom ? Game1.uiViewport.Height - height - 110 : 16;
+
+        StardewValley.Menus.IClickableMenu.drawTextureBox(
+            b, Game1.menuTexture, new Rectangle(0, 256, 60, 60), x, y, width, height, Color.White);
+
+        Utility.drawTextWithShadow(b, heading, headingFont, new Vector2(x + pad, y + pad - 6), Color.SaddleBrown);
+
+        float textY = y + pad - 6 + headingHeight;
+        foreach (string line in lines)
+        {
+            Utility.drawTextWithShadow(b, line, Game1.smallFont, new Vector2(x + pad, textY), Game1.textColor);
+            textY += Game1.smallFont.LineSpacing;
+        }
     }
 
-    private static void DrawWrappedText(SpriteBatch b, string text, SpriteFont font, Vector2 position, Color color, float maxWidth, int maxLines)
+    private static string FormatClock(double seconds)
     {
-        string[] words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        List<string> lines = new();
-        string line = "";
-
-        foreach (string word in words)
-        {
-            string candidate = string.IsNullOrEmpty(line) ? word : line + " " + word;
-            if (font.MeasureString(candidate).X > maxWidth && line.Length > 0)
-            {
-                lines.Add(line);
-                line = word;
-            }
-            else
-            {
-                line = candidate;
-            }
-        }
-
-        if (line.Length > 0)
-            lines.Add(line);
-
-        for (int i = 0; i < Math.Min(lines.Count, maxLines); i++)
-            b.DrawString(font, lines[i], position + new Vector2(0, i * font.LineSpacing), color);
-    }
-
-    private void DrawSubscriptionMenu(SpriteBatch b)
-    {
-        int width = Math.Min(440, Game1.uiViewport.Width - 24);
-        int rowHeight = 72;
-        int rowSpacing = 8;
-        int height = 112 + Ads.SubscriptionOffers.Count * (rowHeight + rowSpacing);
-        MenuBounds = new Rectangle((Game1.uiViewport.Width - width) / 2,
-            (Game1.uiViewport.Height - height) / 2, width, height);
-
-        DrawPanel(b, MenuBounds, new Color(32, 38, 48, 250));
-        b.DrawString(Game1.dialogueFont, "Advertising Subscriptions",
-            new Vector2(MenuBounds.X + 18, MenuBounds.Y + 14), Color.Gold);
-        b.DrawString(Game1.smallFont,
-            IsAdFree() ? "Advertisements are currently paused." : "Choose an offer to pause advertisements.",
-            new Vector2(MenuBounds.X + 18, MenuBounds.Y + 48), Color.White);
-
-        int y = MenuBounds.Y + 82;
-        foreach (SubscriptionOffer offer in Ads.SubscriptionOffers)
-        {
-            Rectangle row = new(MenuBounds.X + 16, y, MenuBounds.Width - 32, rowHeight);
-            DrawPanel(b, row, new Color(67, 77, 91, 245));
-            b.DrawString(Game1.smallFont, $"{offer.DisplayName} - {offer.Price:N0}g",
-                new Vector2(row.X + 10, row.Y + 4), Color.White);
-            DrawWrappedText(b, offer.Description, Game1.tinyFont,
-                new Vector2(row.X + 10, row.Y + 31), Color.LightGray, row.Width - 20, 2);
-            y += rowHeight + rowSpacing;
-        }
+        // Manual formatting: TimeSpan custom format strings throw FormatException if the colon is mis-escaped.
+        int total = (int)Math.Max(0, Math.Round(seconds));
+        return $"{total / 60:00}:{total % 60:00}";
     }
 
     private void DrawDebugTimer(SpriteBatch b)
     {
-        double interval = Math.Max(1, Config.AdvertisementIntervalMinutes) * 60d;
-        double elapsed = AdClock.Elapsed.TotalSeconds;
-        double remaining = Math.Max(0, interval - (elapsed % interval));
-        bool paused = IsAdFree();
-        string elapsedText = TimeSpan.FromSeconds(elapsed % interval).ToString(@"mm\\:ss");
-        string remainingText = TimeSpan.FromSeconds(remaining).ToString(@"mm\\:ss");
-        string intervalText = TimeSpan.FromSeconds(interval).ToString(@"mm\\:ss");
-        string line1 = $"AD DEBUG  {elapsedText} / {intervalText}";
-        string line2 = paused ? "Advertisements paused" : $"Next popup in {remainingText}";
-        int width = 238;
-        int height = 58;
-        Rectangle panel = new((Game1.uiViewport.Width - width) / 2, 12, width, height);
-        DrawPanel(b, panel, new Color(25, 30, 38, 220));
-        b.DrawString(Game1.smallFont, line1, new Vector2(panel.X + 9, panel.Y + 5), Color.Gold);
-        b.DrawString(Game1.tinyFont, line2, new Vector2(panel.X + 9, panel.Y + 34), Color.White);
-    }
+        if (!Config.ShowDebugTimer)
+            return;
 
-    private static void DrawPanel(SpriteBatch b, Rectangle area, Color color) =>
-        b.Draw(Game1.staminaRect, area, color);
+        double interval = Math.Max(1, Config.AdvertisementIntervalMinutes) * 60d;
+        double elapsed = Math.Min(AdClock.Elapsed.TotalSeconds, interval);
+        double remaining = Math.Max(0, interval - elapsed);
+
+        string line1 = $"AD DEBUG  {FormatClock(elapsed)} / {FormatClock(interval)}";
+        string line2 = IsAdFree()
+            ? "Advertisements paused"
+            : PopupPending
+                ? "Popup waiting for a free moment"
+                : $"Next popup in {FormatClock(remaining)}";
+
+        int pad = 10;
+        float width = Math.Max(Game1.smallFont.MeasureString(line1).X, Game1.tinyFont.MeasureString(line2).X) + pad * 2;
+        int height = Game1.smallFont.LineSpacing + Game1.tinyFont.LineSpacing + pad * 2;
+
+        bool popupTopLeft = Config.PopupCorner.Equals("TopLeft", StringComparison.OrdinalIgnoreCase);
+        int y = popupTopLeft && PopupSecondsRemaining > 0 ? 160 : 12;
+        Rectangle panel = new(12, y, (int)Math.Ceiling(width), height);
+
+        b.Draw(Game1.staminaRect, panel, new Color(20, 24, 32) * 0.85f);
+        Utility.drawTextWithShadow(b, line1, Game1.smallFont, new Vector2(panel.X + pad, panel.Y + pad), Color.Gold);
+        Utility.drawTextWithShadow(b, line2, Game1.tinyFont,
+            new Vector2(panel.X + pad, panel.Y + pad + Game1.smallFont.LineSpacing), Color.White);
+    }
 }
