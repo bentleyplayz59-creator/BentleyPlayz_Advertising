@@ -230,14 +230,14 @@ public sealed class ModEntry : Mod
         int y = MenuBounds.Y + 82;
         foreach (SubscriptionOffer offer in Ads.SubscriptionOffers)
         {
-            Rectangle row = new(MenuBounds.X + 16, y, MenuBounds.Width - 32, 58);
+            Rectangle row = new(MenuBounds.X + 16, y, MenuBounds.Width - 32, 72);
             if (row.Contains(cursor))
             {
                 PurchaseOffer(offer);
                 Helper.Input.Suppress(e.Button);
                 return;
             }
-            y += 68;
+            y += 80;
         }
     }
 
@@ -341,14 +341,14 @@ public sealed class ModEntry : Mod
             lines.Add(line);
 
         for (int i = 0; i < Math.Min(lines.Count, maxLines); i++)
-            b.DrawString(font, lines[i], position + new Vector2(0, i * 22), color);
+            b.DrawString(font, lines[i], position + new Vector2(0, i * font.LineSpacing), color);
     }
 
     private void DrawSubscriptionMenu(SpriteBatch b)
     {
         int width = Math.Min(440, Game1.uiViewport.Width - 24);
-        int rowHeight = 58;
-        int rowSpacing = 10;
+        int rowHeight = 72;
+        int rowSpacing = 8;
         int height = 112 + Ads.SubscriptionOffers.Count * (rowHeight + rowSpacing);
         MenuBounds = new Rectangle((Game1.uiViewport.Width - width) / 2,
             (Game1.uiViewport.Height - height) / 2, width, height);
@@ -367,8 +367,8 @@ public sealed class ModEntry : Mod
             DrawPanel(b, row, new Color(67, 77, 91, 245));
             b.DrawString(Game1.smallFont, $"{offer.DisplayName} - {offer.Price:N0}g",
                 new Vector2(row.X + 10, row.Y + 4), Color.White);
-            b.DrawString(Game1.tinyFont, offer.Description,
-                new Vector2(row.X + 10, row.Y + 34), Color.LightGray);
+            DrawWrappedText(b, offer.Description, Game1.tinyFont,
+                new Vector2(row.X + 10, row.Y + 31), Color.LightGray, row.Width - 20, 2);
             y += rowHeight + rowSpacing;
         }
     }
@@ -379,9 +379,9 @@ public sealed class ModEntry : Mod
         double elapsed = AdClock.Elapsed.TotalSeconds;
         double remaining = Math.Max(0, interval - (elapsed % interval));
         bool paused = IsAdFree();
-        string elapsedText = TimeSpan.FromSeconds(elapsed % interval).ToString(@"mm:ss");
-        string remainingText = TimeSpan.FromSeconds(remaining).ToString(@"mm:ss");
-        string intervalText = TimeSpan.FromSeconds(interval).ToString(@"mm:ss");
+        string elapsedText = TimeSpan.FromSeconds(elapsed % interval).ToString(@"mm\\:ss");
+        string remainingText = TimeSpan.FromSeconds(remaining).ToString(@"mm\\:ss");
+        string intervalText = TimeSpan.FromSeconds(interval).ToString(@"mm\\:ss");
         string line1 = $"AD DEBUG  {elapsedText} / {intervalText}";
         string line2 = paused ? "Advertisements paused" : $"Next popup in {remainingText}";
         int width = 238;
