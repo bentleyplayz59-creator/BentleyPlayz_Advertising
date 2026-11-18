@@ -9,29 +9,49 @@ namespace BentleyPlayz.Advertising;
 /// <summary>
 /// The subscription shop, built as a real vanilla menu so touch input, UI scaling and the
 /// dialogue-box frame all behave like the rest of the game.
+/// Tap an offer to select it, then press Buy. (Two steps so a stray touch can never spend 25,000g.)
 /// </summary>
 internal sealed class SubscriptionMenu : IClickableMenu
 {
-    private const int RowHeight = 96;
-    private const int RowGap = 8;
-    private const int HeaderHeight = 150;
-    private const int FooterHeight = 36;
     private const int SidePadding = 36;
+    private const int MessageDurationMs = 4000;
 
     private readonly List<SubscriptionOffer> Offers;
     private readonly Func<bool> IsPaused;
+    private readonly Func<string> GetRemainingText;
     private readonly Func<SubscriptionOffer, bool> TryPurchase;
+
+    private bool Compact;
+    private int RowHeight = 96;
+    private int RowGap = 8;
+    private int HeaderHeight = 180;
+    private int FooterHeight = 136;
+    private int ButtonHeight = 64;
 
     private int FirstRow;
     private int VisibleRows;
+    private int SelectedIndex = -1;
+    private Rectangle BuyButton;
     private ClickableTextureComponent? UpArrow;
     private ClickableTextureComponent? DownArrow;
 
-    public SubscriptionMenu(List<SubscriptionOffer> offers, Func<bool> isPaused, Func<SubscriptionOffer, bool> tryPurchase)
+    private string? FeedbackText;
+    private bool FeedbackIsError;
+    private int FeedbackTimerMs;
+
+    private int DragStartY = int.MinValue;
+    private int DragStartFirstRow;
+
+    public SubscriptionMenu(
+        List<SubscriptionOffer> offers,
+        Func<bool> isPaused,
+        Func<string> getRemainingText,
+        Func<SubscriptionOffer, bool> tryPurchase)
         : base(0, 0, 0, 0, true)
     {
         this.Offers = offers;
         this.IsPaused = isPaused;
+        this.GetRemainingText = getRemainingText;
         this.TryPurchase = tryPurchase;
         this.Layout();
     }
@@ -47,13 +67,21 @@ internal sealed class SubscriptionMenu : IClickableMenu
         int viewWidth = Game1.uiViewport.Width;
         int viewHeight = Game1.uiViewport.Height;
 
-        this.width = Math.Min(860, viewWidth - 48);
-        int maxHeight = viewHeight - 48;
-        int perRow = RowHeight + RowGap;
+        // Smaller rows on short (phone) screens so more offers fit before scrolling is needed.
+        this.Compact = viewHeight < 700;
+        this.RowHeight = this.Compact ? 84 : 96;
+        this.RowGap = this.Compact ? 6 : 8;
+        this.HeaderHeight = this.Compact ? 156 : 180;
+        this.ButtonHeight = this.Compact ? 56 : 64;
+        this.FooterHeight = this.Compact ? 120 : 136;
 
-        int fit = Math.Max(1, (maxHeight - HeaderHeight - FooterHeight) / perRow);
+        this.width = Math.Min(860, viewWidth - 32);
+        int maxHeight = viewHeight - 32;
+        int perRow = this.RowHeight + this.RowGap;
+
+        int fit = Math.Max(1, (maxHeight - this.HeaderHeight - this.FooterHeight) / perRow);
         this.VisibleRows = Math.Max(1, Math.Min(this.Offers.Count, fit));
-        this.height = HeaderHeight + this.VisibleRows * perRow + FooterHeight;
+        this.height = this.HeaderHeight + this.VisibleRows * perRow + this.FooterHeight;
 
         this.xPositionOnScreen = (viewWidth - this.width) / 2;
         this.yPositionOnScreen = Math.Max(8, (viewHeight - this.height) / 2);
@@ -69,18 +97,31 @@ internal sealed class SubscriptionMenu : IClickableMenu
             new Rectangle(337, 494, 12, 12),
             4f);
 
-        if (this.Offers.Count > this.VisibleRows)
+        int footerTop = this.yPositionOnScreen + this.HeaderHeight + this.VisibleRows * perRow;
+        int controlsY = footerTop + this.FooterHeight - this.ButtonHeight - 28;
+        bool needsArrows = this.Offers.Count > this.VisibleRows;
+        int reserve = needsArrows ? 112 : 0;
+
+        int buttonWidth = Math.Clamp(this.width - 2 * (SidePadding + reserve), 160, 300);
+        this.BuyButton = new Rectangle(
+            this.xPositionOnScreen + (this.width - buttonWidth) / 2,
+            controlsY,
+            buttonWidth,
+            this.ButtonHeight);
+
+        if (needsArrows)
         {
-            int arrowY = this.yPositionOnScreen + 92;
-            this.UpArrow = new ClickableTextureComponent(
-                new Rectangle(this.xPositionOnScreen + this.width - 140, arrowY, 44, 48),
-                Game1.mouseCursors,
-                new Rectangle(421, 459, 11, 12),
-                4f);
+            int arrowY = controlsY + (this.ButtonHeight - 48) / 2;
+            int downX = this.xPositionOnScreen + this.width - SidePadding - 44;
             this.DownArrow = new ClickableTextureComponent(
-                new Rectangle(this.xPositionOnScreen + this.width - 84, arrowY, 44, 48),
+                new Rectangle(downX, arrowY, 44, 48),
                 Game1.mouseCursors,
                 new Rectangle(421, 472, 11, 12),
+                4f);
+            this.UpArrow = new ClickableTextureComponent(
+                new Rectangle(downX - 52, arrowY, 44, 48),
+                Game1.mouseCursors,
+                new Rectangle(421, 459, 11, 12),
                 4f);
         }
         else
@@ -94,13 +135,30 @@ internal sealed class SubscriptionMenu : IClickableMenu
     {
         return new Rectangle(
             this.xPositionOnScreen + SidePadding,
-            this.yPositionOnScreen + HeaderHeight + visibleIndex * (RowHeight + RowGap),
+            this.yPositionOnScreen + this.HeaderHeight + visibleIndex * (this.RowHeight + this.RowGap),
             this.width - SidePadding * 2,
-            RowHeight);
+            this.RowHeight);
+    }
+
+    private Rectangle GetListArea()
+    {
+        return new Rectangle(
+            this.xPositionOnScreen + SidePadding,
+            this.yPositionOnScreen + this.HeaderHeight,
+            this.width - SidePadding * 2,
+            this.VisibleRows * (this.RowHeight + this.RowGap));
+    }
+
+    private void ShowFeedback(string text, bool isError)
+    {
+        this.FeedbackText = text;
+        this.FeedbackIsError = isError;
+        this.FeedbackTimerMs = MessageDurationMs;
     }
 
     public override void receiveLeftClick(int x, int y, bool playSound = true)
     {
+        // The base class handles the upper-right close button.
         base.receiveLeftClick(x, y, playSound);
 
         if (this.UpArrow?.containsPoint(x, y) == true)
@@ -115,6 +173,19 @@ internal sealed class SubscriptionMenu : IClickableMenu
             return;
         }
 
+        if (this.BuyButton.Contains(x, y))
+        {
+            this.PressBuy();
+            return;
+        }
+
+        if (this.GetListArea().Contains(x, y))
+        {
+            // Remember where the touch started so dragging the list scrolls it.
+            this.DragStartY = y;
+            this.DragStartFirstRow = this.FirstRow;
+        }
+
         for (int i = 0; i < this.VisibleRows; i++)
         {
             int index = this.FirstRow + i;
@@ -123,12 +194,60 @@ internal sealed class SubscriptionMenu : IClickableMenu
 
             if (this.GetRowBounds(i).Contains(x, y))
             {
-                if (this.TryPurchase(this.Offers[index]))
-                    Game1.playSound("purchaseClick");
-                else
-                    Game1.playSound("cancel");
+                if (this.SelectedIndex != index)
+                    Game1.playSound("smallSelect");
+                this.SelectedIndex = index;
+                this.FeedbackText = null;
                 return;
             }
+        }
+    }
+
+    public override void leftClickHeld(int x, int y)
+    {
+        base.leftClickHeld(x, y);
+
+        if (this.DragStartY == int.MinValue || this.Offers.Count <= this.VisibleRows)
+            return;
+
+        int steps = (this.DragStartY - y) / (this.RowHeight + this.RowGap);
+        int max = Math.Max(0, this.Offers.Count - this.VisibleRows);
+        this.FirstRow = Math.Clamp(this.DragStartFirstRow + steps, 0, max);
+    }
+
+    public override void releaseLeftClick(int x, int y)
+    {
+        base.releaseLeftClick(x, y);
+        this.DragStartY = int.MinValue;
+    }
+
+    private void PressBuy()
+    {
+        if (this.SelectedIndex < 0 || this.SelectedIndex >= this.Offers.Count)
+        {
+            Game1.playSound("cancel");
+            this.ShowFeedback("Select an offer first.", true);
+            return;
+        }
+
+        SubscriptionOffer offer = this.Offers[this.SelectedIndex];
+        int money = Game1.player.Money;
+        if (money < offer.Price)
+        {
+            Game1.playSound("cancel");
+            this.ShowFeedback($"Not enough gold - you need {offer.Price - money:N0}g more.", true);
+            return;
+        }
+
+        if (this.TryPurchase(offer))
+        {
+            Game1.playSound("purchaseClick");
+            this.ShowFeedback($"Purchased {offer.DisplayName}!", false);
+        }
+        else
+        {
+            Game1.playSound("cancel");
+            this.ShowFeedback("That purchase couldn't be completed.", true);
         }
     }
 
@@ -146,6 +265,18 @@ internal sealed class SubscriptionMenu : IClickableMenu
         {
             this.FirstRow = next;
             Game1.playSound("shwip");
+        }
+    }
+
+    public override void update(GameTime time)
+    {
+        base.update(time);
+
+        if (this.FeedbackTimerMs > 0)
+        {
+            this.FeedbackTimerMs -= (int)time.ElapsedGameTime.TotalMilliseconds;
+            if (this.FeedbackTimerMs <= 0)
+                this.FeedbackText = null;
         }
     }
 
@@ -172,11 +303,36 @@ internal sealed class SubscriptionMenu : IClickableMenu
                 Game1.textColor);
         }
 
-        string status = this.IsPaused() ? "Advertisements are currently paused." : "Choose an offer to pause advertisements.";
-        status = TrimToWidth(status, Game1.smallFont, this.width - SidePadding * 2 - (this.UpArrow is null ? 0 : 130));
-        Utility.drawTextWithShadow(b, status, Game1.smallFont,
-            new Vector2(this.xPositionOnScreen + SidePadding, this.yPositionOnScreen + 100), Game1.textColor);
+        // Status + gold.
+        int textMaxWidth = this.width - SidePadding * 2;
+        int statusY = this.yPositionOnScreen + (this.Compact ? 84 : 96);
+        string status;
+        Color statusColor = Game1.textColor;
+        if (this.IsPaused())
+        {
+            string remaining = this.GetRemainingText();
+            status = remaining.Length > 0 ? $"Ad-free! {remaining}" : "Advertisements are currently paused.";
+            statusColor = Color.DarkGreen;
+        }
+        else
+        {
+            status = "Pick an offer, then press Buy.";
+        }
 
+        Utility.drawTextWithShadow(b, TrimToWidth(status, Game1.smallFont, textMaxWidth), Game1.smallFont,
+            new Vector2(this.xPositionOnScreen + SidePadding, statusY), statusColor);
+        Utility.drawTextWithShadow(b, $"Your gold: {Game1.player.Money:N0}g", Game1.smallFont,
+            new Vector2(this.xPositionOnScreen + SidePadding, statusY + Game1.smallFont.LineSpacing), Game1.textColor);
+
+        // Offers.
+        if (this.Offers.Count == 0)
+        {
+            Utility.drawTextWithShadow(b, "No subscription offers are available.", Game1.smallFont,
+                new Vector2(this.xPositionOnScreen + SidePadding, this.yPositionOnScreen + this.HeaderHeight + 12), Game1.textColor);
+        }
+
+        int mouseX = Game1.getMouseX(true);
+        int mouseY = Game1.getMouseY(true);
         for (int i = 0; i < this.VisibleRows; i++)
         {
             int index = this.FirstRow + i;
@@ -186,28 +342,110 @@ internal sealed class SubscriptionMenu : IClickableMenu
             SubscriptionOffer offer = this.Offers[index];
             Rectangle row = this.GetRowBounds(i);
             bool canAfford = Game1.player.Money >= offer.Price;
-            bool hovered = row.Contains(Game1.getMouseX(true), Game1.getMouseY(true));
+            bool selected = index == this.SelectedIndex;
+            bool hovered = row.Contains(mouseX, mouseY);
 
+            Color rowTint = selected ? Color.LightGreen : hovered ? Color.Wheat : Color.White;
             IClickableMenu.drawTextureBox(
                 b, Game1.mouseCursors, new Rectangle(432, 439, 9, 9),
-                row.X, row.Y, row.Width, row.Height,
-                hovered && canAfford ? Color.Wheat : Color.White, 4f, false);
+                row.X, row.Y, row.Width, row.Height, rowTint, 4f, false);
+            if (selected)
+                DrawOutline(b, row, 4, Color.DarkGreen);
 
-            int textWidth = row.Width - 40;
-            string heading = TrimToWidth($"{offer.DisplayName} - {offer.Price:N0}g", Game1.smallFont, textWidth);
-            Utility.drawTextWithShadow(b, heading, Game1.smallFont,
-                new Vector2(row.X + 20, row.Y + 12), canAfford ? Game1.textColor : Color.Firebrick);
+            int innerLeft = row.X + 20;
+            int innerRight = row.Right - 20;
 
-            string description = TrimToWidth(offer.Description, Game1.tinyFont, textWidth);
-            Utility.drawTextWithShadow(b, description, Game1.tinyFont,
-                new Vector2(row.X + 20, row.Y + 12 + Game1.smallFont.LineSpacing + 4), Game1.textColor * 0.8f);
+            string priceText = $"{offer.Price:N0}g";
+            Vector2 priceSize = Game1.smallFont.MeasureString(priceText);
+            Utility.drawTextWithShadow(b, priceText, Game1.smallFont,
+                new Vector2(innerRight - priceSize.X, row.Y + 12),
+                canAfford ? new Color(60, 110, 40) : Color.Firebrick);
+
+            int nameWidth = Math.Max(40, innerRight - innerLeft - (int)priceSize.X - 16);
+            Utility.drawTextWithShadow(b, TrimToWidth(offer.DisplayName, Game1.smallFont, nameWidth), Game1.smallFont,
+                new Vector2(innerLeft, row.Y + 12), Game1.textColor);
+
+            string duration = $"Lasts {FormatDuration(offer)}";
+            if (!canAfford)
+                duration += "  -  not enough gold";
+            Utility.drawTextWithShadow(b, TrimToWidth(duration, Game1.tinyFont, innerRight - innerLeft), Game1.tinyFont,
+                new Vector2(innerLeft, row.Y + 12 + Game1.smallFont.LineSpacing + 4), Game1.textColor * 0.85f);
         }
+
+        // Footer: feedback line, Buy button, scroll arrows.
+        int footerTop = this.yPositionOnScreen + this.HeaderHeight + this.VisibleRows * (this.RowHeight + this.RowGap);
+        string? footerText = null;
+        Color footerColor = Game1.textColor;
+        if (this.FeedbackText is not null)
+        {
+            footerText = this.FeedbackText;
+            footerColor = this.FeedbackIsError ? Color.Firebrick : Color.DarkGreen;
+        }
+        else if (this.SelectedIndex >= 0 && this.SelectedIndex < this.Offers.Count)
+        {
+            SubscriptionOffer picked = this.Offers[this.SelectedIndex];
+            footerText = $"Selected: {picked.DisplayName} - {picked.Price:N0}g";
+        }
+
+        if (footerText is not null)
+        {
+            footerText = TrimToWidth(footerText, Game1.smallFont, textMaxWidth);
+            Vector2 footerSize = Game1.smallFont.MeasureString(footerText);
+            Utility.drawTextWithShadow(b, footerText, Game1.smallFont,
+                new Vector2(this.xPositionOnScreen + (this.width - footerSize.X) / 2f, footerTop), footerColor);
+        }
+
+        bool hasSelection = this.SelectedIndex >= 0 && this.SelectedIndex < this.Offers.Count;
+        bool canBuy = hasSelection && Game1.player.Money >= this.Offers[this.SelectedIndex].Price;
+        string buyLabel = !hasSelection ? "Buy" : canBuy ? $"Buy for {this.Offers[this.SelectedIndex].Price:N0}g" : "Not enough gold";
+        bool buyHovered = canBuy && this.BuyButton.Contains(mouseX, mouseY);
+
+        IClickableMenu.drawTextureBox(
+            b, Game1.mouseCursors, new Rectangle(432, 439, 9, 9),
+            this.BuyButton.X, this.BuyButton.Y, this.BuyButton.Width, this.BuyButton.Height,
+            canBuy ? (buyHovered ? Color.Wheat : Color.LightGreen) : Color.Gray, 4f, false);
+
+        string trimmedBuy = TrimToWidth(buyLabel, Game1.smallFont, this.BuyButton.Width - 24);
+        Vector2 buySize = Game1.smallFont.MeasureString(trimmedBuy);
+        Utility.drawTextWithShadow(b, trimmedBuy, Game1.smallFont,
+            new Vector2(this.BuyButton.X + (this.BuyButton.Width - buySize.X) / 2f, this.BuyButton.Y + (this.BuyButton.Height - buySize.Y) / 2f),
+            canBuy ? Game1.textColor : Game1.textColor * 0.6f);
 
         this.UpArrow?.draw(b, this.FirstRow > 0 ? Color.White : Color.Gray, 0.88f);
         this.DownArrow?.draw(b, this.FirstRow < this.Offers.Count - this.VisibleRows ? Color.White : Color.Gray, 0.88f);
 
         this.upperRightCloseButton?.draw(b);
         this.drawMouse(b);
+    }
+
+    private static void DrawOutline(SpriteBatch b, Rectangle area, int thickness, Color color)
+    {
+        b.Draw(Game1.staminaRect, new Rectangle(area.X, area.Y, area.Width, thickness), color);
+        b.Draw(Game1.staminaRect, new Rectangle(area.X, area.Bottom - thickness, area.Width, thickness), color);
+        b.Draw(Game1.staminaRect, new Rectangle(area.X, area.Y, thickness, area.Height), color);
+        b.Draw(Game1.staminaRect, new Rectangle(area.Right - thickness, area.Y, thickness, area.Height), color);
+    }
+
+    /// <summary>Plain-language length of an offer, built from its numbers so it can't disagree with the price list.</summary>
+    internal static string FormatDuration(SubscriptionOffer offer)
+    {
+        List<string> parts = new();
+
+        if (offer.DurationMinutes > 0)
+        {
+            if (offer.DurationMinutes % 60 == 0)
+            {
+                int hours = offer.DurationMinutes / 60;
+                parts.Add(hours == 1 ? "1 real-world hour" : $"{hours} real-world hours");
+            }
+            else
+                parts.Add($"{offer.DurationMinutes} real-world minutes");
+        }
+
+        if (offer.DurationInGameDays > 0)
+            parts.Add(offer.DurationInGameDays == 1 ? "1 in-game day" : $"{offer.DurationInGameDays} in-game days");
+
+        return parts.Count > 0 ? string.Join(" + ", parts) : "an unknown time";
     }
 
     /// <summary>Shortens text with an ellipsis so it can never spill past its box.</summary>

@@ -3,7 +3,7 @@
     <TargetFramework>net6.0</TargetFramework>
     <RootNamespace>BentleyPlayz.Advertising</RootNamespace>
     <AssemblyName>BentleyPlayz.Advertising</AssemblyName>
-    <Version>0.2.0</Version>
+    <Version>0.2.1</Version>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <EnableModDeploy>false</EnableModDeploy>

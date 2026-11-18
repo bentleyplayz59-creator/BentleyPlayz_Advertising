@@ -4,8 +4,14 @@
   "EnablePopups": true,
   "EnableMail": true,
   "EnableSubscriptions": true,
+  "PopupDurationSeconds": 7,
+  "PopupDimAmount": 0.6,
+  "PlayPopupSound": true,
   "PopupCorner": "TopRight",
   "ShowDebugTimer": true,
   "HudButtonOffsetFromRight": 372,
-  "HudButtonOffsetFromTop": 20
+  "HudButtonOffsetFromTop": 20,
+  "HudButtonSize": 72,
+  "AnchorHudButtonToClock": true,
+  "OpenMenuKey": "K"
 }
