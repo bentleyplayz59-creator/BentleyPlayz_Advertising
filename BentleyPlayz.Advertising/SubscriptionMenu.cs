@@ -10,6 +10,7 @@ namespace BentleyPlayz.Advertising;
 /// The subscription shop, built as a real vanilla menu so touch input, UI scaling and the
 /// dialogue-box frame all behave like the rest of the game.
 /// Tap an offer to select it, then press Buy. (Two steps so a stray touch can never spend 25,000g.)
+/// It also shows how long until the next ad, or how long the current ad-free period has left.
 /// </summary>
 internal sealed class SubscriptionMenu : IClickableMenu
 {
@@ -19,6 +20,7 @@ internal sealed class SubscriptionMenu : IClickableMenu
     private readonly List<SubscriptionOffer> Offers;
     private readonly Func<bool> IsPaused;
     private readonly Func<string> GetRemainingText;
+    private readonly Func<string> GetNextAdText;
     private readonly Func<SubscriptionOffer, bool> TryPurchase;
 
     private bool Compact;
@@ -46,12 +48,14 @@ internal sealed class SubscriptionMenu : IClickableMenu
         List<SubscriptionOffer> offers,
         Func<bool> isPaused,
         Func<string> getRemainingText,
+        Func<string> getNextAdText,
         Func<SubscriptionOffer, bool> tryPurchase)
         : base(0, 0, 0, 0, true)
     {
         this.Offers = offers;
         this.IsPaused = isPaused;
         this.GetRemainingText = getRemainingText;
+        this.GetNextAdText = getNextAdText;
         this.TryPurchase = tryPurchase;
         this.Layout();
     }
@@ -67,9 +71,10 @@ internal sealed class SubscriptionMenu : IClickableMenu
         int viewWidth = Game1.uiViewport.Width;
         int viewHeight = Game1.uiViewport.Height;
 
-        // Smaller rows on short (phone) screens so more offers fit before scrolling is needed.
+        // Smaller spacing on short (phone) screens so more offers fit before scrolling is needed.
+        // Rows are sized from the font so two lines of text always fit inside the frame.
         this.Compact = viewHeight < 700;
-        this.RowHeight = this.Compact ? 84 : 96;
+        this.RowHeight = Game1.smallFont.LineSpacing * 2 + 28;
         this.RowGap = this.Compact ? 6 : 8;
         this.HeaderHeight = this.Compact ? 156 : 180;
         this.ButtonHeight = this.Compact ? 56 : 64;
@@ -303,9 +308,16 @@ internal sealed class SubscriptionMenu : IClickableMenu
                 Game1.textColor);
         }
 
-        // Status + gold.
+        // Header. Line 1: status on the left, your gold on the right. Line 2: time until the next ad.
+        // (Everything uses the same small font so the text looks consistent.)
         int textMaxWidth = this.width - SidePadding * 2;
         int statusY = this.yPositionOnScreen + (this.Compact ? 84 : 96);
+
+        string gold = $"Your gold: {Game1.player.Money:N0}g";
+        Vector2 goldSize = Game1.smallFont.MeasureString(gold);
+        Utility.drawTextWithShadow(b, gold, Game1.smallFont,
+            new Vector2(this.xPositionOnScreen + this.width - SidePadding - goldSize.X, statusY), Game1.textColor);
+
         string status;
         Color statusColor = Game1.textColor;
         if (this.IsPaused())
@@ -319,10 +331,15 @@ internal sealed class SubscriptionMenu : IClickableMenu
             status = "Pick an offer, then press Buy.";
         }
 
-        Utility.drawTextWithShadow(b, TrimToWidth(status, Game1.smallFont, textMaxWidth), Game1.smallFont,
+        Utility.drawTextWithShadow(b, TrimToWidth(status, Game1.smallFont, textMaxWidth - (int)goldSize.X - 16), Game1.smallFont,
             new Vector2(this.xPositionOnScreen + SidePadding, statusY), statusColor);
-        Utility.drawTextWithShadow(b, $"Your gold: {Game1.player.Money:N0}g", Game1.smallFont,
-            new Vector2(this.xPositionOnScreen + SidePadding, statusY + Game1.smallFont.LineSpacing), Game1.textColor);
+
+        string nextAd = this.GetNextAdText();
+        if (nextAd.Length > 0)
+        {
+            Utility.drawTextWithShadow(b, TrimToWidth(nextAd, Game1.smallFont, textMaxWidth), Game1.smallFont,
+                new Vector2(this.xPositionOnScreen + SidePadding, statusY + Game1.smallFont.LineSpacing), Game1.textColor);
+        }
 
         // Offers.
         if (this.Offers.Count == 0)
@@ -354,6 +371,7 @@ internal sealed class SubscriptionMenu : IClickableMenu
 
             int innerLeft = row.X + 20;
             int innerRight = row.Right - 20;
+            int lineHeight = Game1.smallFont.LineSpacing;
 
             string priceText = $"{offer.Price:N0}g";
             Vector2 priceSize = Game1.smallFont.MeasureString(priceText);
@@ -368,8 +386,8 @@ internal sealed class SubscriptionMenu : IClickableMenu
             string duration = $"Lasts {FormatDuration(offer)}";
             if (!canAfford)
                 duration += "  -  not enough gold";
-            Utility.drawTextWithShadow(b, TrimToWidth(duration, Game1.tinyFont, innerRight - innerLeft), Game1.tinyFont,
-                new Vector2(innerLeft, row.Y + 12 + Game1.smallFont.LineSpacing + 4), Game1.textColor * 0.85f);
+            Utility.drawTextWithShadow(b, TrimToWidth(duration, Game1.smallFont, innerRight - innerLeft), Game1.smallFont,
+                new Vector2(innerLeft, row.Y + 12 + lineHeight), Game1.textColor * 0.85f);
         }
 
         // Footer: feedback line, Buy button, scroll arrows.

@@ -26,6 +26,9 @@ public sealed class ModEntry : Mod
     private Rectangle HudButton;
     private SubscriptionState Subscription = new();
 
+    /// <summary>Seconds already counted toward the next ad before the stopwatch was last (re)started, e.g. restored from a save.</summary>
+    private double AdBaseSeconds;
+
     public override void Entry(IModHelper helper)
     {
         Config = helper.ReadConfig<ModConfig>();
@@ -127,23 +130,50 @@ public sealed class ModEntry : Mod
     }
 
     /*********
+    ** Ad timer (per save)
+    *********/
+    private double GetIntervalSeconds() =>
+        Math.Max(1, Config.AdvertisementIntervalMinutes) * 60d;
+
+    private double GetAdElapsedSeconds() =>
+        AdBaseSeconds + AdClock.Elapsed.TotalSeconds;
+
+    /// <summary>Starts a fresh countdown to the next ad.</summary>
+    private void ResetAdClock()
+    {
+        AdBaseSeconds = 0;
+        AdClock.Restart();
+    }
+
+    /*********
     ** Save / lifecycle
     *********/
     private void OnSaveLoaded(object? sender, SaveLoadedEventArgs e)
     {
+        // Everything here is stored inside the save file, so each save has its own subscription and ad timer.
         Subscription = Helper.Data.ReadSaveData<SubscriptionState>("subscription-state") ?? new SubscriptionState();
         ResetPopupState();
+
+        // Pick the countdown up where the save left off. The cap gives a short grace period so an ad that was
+        // almost due when you saved doesn't pop up the instant the save finishes loading.
+        double interval = GetIntervalSeconds();
+        double saved = Subscription.AdTimerSeconds ?? 0;
+        AdBaseSeconds = Math.Clamp(saved, 0, Math.Max(0, interval - 20));
         AdClock.Restart();
     }
 
     private void OnReturnedToTitle(object? sender, ReturnedToTitleEventArgs e)
     {
+        // The countdown stays stopped while you're on the title screen; the next loaded save sets its own.
         ResetPopupState();
+        AdBaseSeconds = 0;
         AdClock.Reset();
     }
 
     private void OnSaving(object? sender, SavingEventArgs e)
     {
+        // Remember how far into the countdown we are, so quitting and loading this save resumes from here.
+        Subscription.AdTimerSeconds = IsAdFree() ? 0 : GetAdElapsedSeconds();
         Helper.Data.WriteSaveData("subscription-state", Subscription);
     }
 
@@ -181,7 +211,7 @@ public sealed class ModEntry : Mod
         if (IsAdFree())
         {
             // Start a fresh interval when the subscription ends, and clear anything on screen.
-            AdClock.Restart();
+            ResetAdClock();
             PopupPending = false;
             PopupSecondsRemaining = 0;
             return;
@@ -196,10 +226,9 @@ public sealed class ModEntry : Mod
         if (PopupSecondsRemaining > 0 && canShow && Game1.currentGameTime is not null)
             PopupSecondsRemaining = Math.Max(0, PopupSecondsRemaining - Game1.currentGameTime.ElapsedGameTime.TotalSeconds);
 
-        double interval = Math.Max(1, Config.AdvertisementIntervalMinutes) * 60d;
-        if (AdClock.Elapsed.TotalSeconds >= interval)
+        if (GetAdElapsedSeconds() >= GetIntervalSeconds())
         {
-            AdClock.Restart();
+            ResetAdClock();
             if (Config.EnablePopups)
                 PopupPending = true;
         }
@@ -289,7 +318,7 @@ public sealed class ModEntry : Mod
     }
 
     /*********
-    ** Subscription status
+    ** Status text shown in the AD menu
     *********/
     private static string FormatRemaining(TimeSpan span)
     {
@@ -320,6 +349,22 @@ public sealed class ModEntry : Mod
         return string.Join("  +  ", parts);
     }
 
+    /// <summary>"Next ad in 3m 21s". Empty while ad-free (the menu shows the subscription countdown instead).</summary>
+    private string GetNextAdText()
+    {
+        if (IsAdFree())
+            return "";
+
+        if (!Config.EnablePopups)
+            return "Popup ads are turned off.";
+
+        if (PopupPending)
+            return "An ad is waiting - it shows once you close this menu.";
+
+        double remaining = Math.Max(0, GetIntervalSeconds() - GetAdElapsedSeconds());
+        return $"Next ad in {FormatRemaining(TimeSpan.FromSeconds(Math.Ceiling(remaining)))}";
+    }
+
     /*********
     ** Input
     *********/
@@ -341,7 +386,7 @@ public sealed class ModEntry : Mod
     private void OpenSubscriptionMenu()
     {
         Game1.playSound("bigSelect");
-        Game1.activeClickableMenu = new SubscriptionMenu(Ads.SubscriptionOffers, IsAdFree, GetRemainingText, PurchaseOffer);
+        Game1.activeClickableMenu = new SubscriptionMenu(Ads.SubscriptionOffers, IsAdFree, GetRemainingText, GetNextAdText, PurchaseOffer);
     }
 
     private void OnButtonPressed(object? sender, ButtonPressedEventArgs e)
@@ -349,7 +394,7 @@ public sealed class ModEntry : Mod
         if (!CanUseHudButton())
             return;
 
-        // Optional keyboard shortcut (handy for testing the menu independently of the HUD button).
+        // Optional keyboard shortcut.
         if (Config.OpenMenuKey != SButton.None && e.Button == Config.OpenMenuKey)
         {
             if (Game1.chatBox is not null && Game1.chatBox.isActive())
@@ -370,18 +415,15 @@ public sealed class ModEntry : Mod
         Rectangle hit = GetHudButtonHitArea();
         bool hitButton = hit != Rectangle.Empty && (hit.Contains(scaled) || hit.Contains(game));
 
-        if (Config.ShowDebugTimer)
+        // Only visible in the SMAPI log when trace logging is on; handy if taps ever stop registering.
+        Rectangle near = hit;
+        near.Inflate(300, 300);
+        if (hit != Rectangle.Empty && (near.Contains(scaled) || near.Contains(game)))
         {
-            Rectangle near = hit;
-            near.Inflate(300, 300);
-            if (near.Contains(scaled) || near.Contains(game))
-            {
-                Monitor.Log(
-                    $"[AD-INPUT] {e.Button} scaled=({scaled.X},{scaled.Y}) game=({game.X},{game.Y}) " +
-                    $"raw=({e.Cursor.ScreenPixels.X:0},{e.Cursor.ScreenPixels.Y:0}) button={hit} " +
-                    $"ui={Game1.uiViewport.Width}x{Game1.uiViewport.Height} uiScale={Game1.options.uiScale:0.00} hit={hitButton}",
-                    LogLevel.Debug);
-            }
+            Monitor.Log(
+                $"[AD-INPUT] {e.Button} scaled=({scaled.X},{scaled.Y}) game=({game.X},{game.Y}) button={hit} " +
+                $"ui={Game1.uiViewport.Width}x{Game1.uiViewport.Height} hit={hitButton}",
+                LogLevel.Trace);
         }
 
         if (!hitButton)
@@ -443,12 +485,11 @@ public sealed class ModEntry : Mod
 
         SpriteBatch b = e.SpriteBatch;
 
-        // Keep each element isolated so one failure can never hide the others.
+        // Keep each element isolated so one failure can never hide the other.
         // Order matters: the popup dims the screen first, then the AD button is drawn on top of the dimming
-        // (so it stays visible and tappable during an ad), then the debug timer.
+        // (so it stays visible and tappable during an ad).
         SafeDraw(() => DrawAdvertisementPopup(b), "advertisement popup");
         SafeDraw(() => DrawHudButton(b), "AD button");
-        SafeDraw(() => DrawDebugTimer(b), "debug timer");
     }
 
     private bool LoggedDrawError;
@@ -470,26 +511,32 @@ public sealed class ModEntry : Mod
 
     /// <summary>
     /// One rectangle is used for both drawing and clicking, so the two can't drift apart.
-    /// It sits just left of the in-game clock; if the clock's position can't be read, the config offsets are used.
+    /// Default is top-center of the screen, which none of the vanilla or Android HUD elements use.
     /// </summary>
     private Rectangle ComputeHudButtonBounds()
     {
         int size = Math.Clamp(Config.HudButtonSize, 48, 128);
-        int x = Game1.uiViewport.Width - Config.HudButtonOffsetFromRight;
+        int viewW = Game1.uiViewport.Width;
+        int x = (viewW - size) / 2;
         int y = Config.HudButtonOffsetFromTop;
 
-        if (Config.AnchorHudButtonToClock && Game1.dayTimeMoneyBox is not null)
+        string mode = (Config.HudButtonPosition ?? "TopCenter").Trim();
+        if (mode.Equals("Custom", StringComparison.OrdinalIgnoreCase))
+        {
+            x = viewW - Config.HudButtonOffsetFromRight;
+        }
+        else if (mode.Equals("LeftOfClock", StringComparison.OrdinalIgnoreCase) && Game1.dayTimeMoneyBox is not null)
         {
             int clockLeft = Game1.dayTimeMoneyBox.xPositionOnScreen;
             int clockTop = Game1.dayTimeMoneyBox.yPositionOnScreen;
-            if (clockLeft > size + 24 && clockLeft < Game1.uiViewport.Width)
+            if (clockLeft > size + 24 && clockLeft < viewW)
             {
                 x = clockLeft - size - 16;
                 y = Math.Max(clockTop, 8) + 12;
             }
         }
 
-        x = Math.Clamp(x, 8, Math.Max(8, Game1.uiViewport.Width - size - 8));
+        x = Math.Clamp(x, 8, Math.Max(8, viewW - size - 8));
         y = Math.Clamp(y, 8, Math.Max(8, Game1.uiViewport.Height - size - 8));
         return new Rectangle(x, y, size, size);
     }
@@ -552,7 +599,7 @@ public sealed class ModEntry : Mod
         int pad = viewW < 700 ? 24 : 40;
         int textWidth = boxWidth - pad * 2;
         int bannerHeight = Game1.smallFont.LineSpacing + 14;
-        int footerHeight = Game1.tinyFont.LineSpacing + 22;
+        int footerHeight = Game1.smallFont.LineSpacing + 22;
 
         SpriteFont headingFont = Game1.dialogueFont;
         SpriteFont bodyFont = Game1.dialogueFont;
@@ -614,7 +661,7 @@ public sealed class ModEntry : Mod
             y += bodyFont.LineSpacing;
         }
 
-        // 6) Footer: time-left bar, hint, countdown.
+        // 6) Footer: time-left bar, hint, countdown (same small font as the menu so the text looks consistent).
         int footerY = boxY + boxHeight - pad - footerHeight + 6;
         Rectangle barBack = new(boxX + pad, footerY, boxWidth - pad * 2, 10);
         float fraction = (float)Math.Clamp(PopupSecondsRemaining / total, 0d, 1d);
@@ -622,50 +669,14 @@ public sealed class ModEntry : Mod
         b.Draw(Game1.staminaRect, new Rectangle(barBack.X, barBack.Y, (int)(barBack.Width * fraction), barBack.Height), new Color(200, 70, 30) * fade);
 
         string countdown = $"Closes in {(int)Math.Ceiling(PopupSecondsRemaining)}s";
-        float countdownWidth = Game1.tinyFont.MeasureString(countdown).X;
+        float countdownWidth = Game1.smallFont.MeasureString(countdown).X;
         string hint = SubscriptionMenu.TrimToWidth(
-            "Tired of ads? Use the AD button for an ad-free pass.", Game1.tinyFont,
+            "Tired of ads? Use the AD button.", Game1.smallFont,
             Math.Max(80, textWidth - (int)countdownWidth - 16));
 
         float textY = footerY + 14;
-        Utility.drawTextWithShadow(b, hint, Game1.tinyFont, new Vector2(boxX + pad, textY), Game1.textColor * (0.85f * fade));
-        Utility.drawTextWithShadow(b, countdown, Game1.tinyFont,
+        Utility.drawTextWithShadow(b, hint, Game1.smallFont, new Vector2(boxX + pad, textY), Game1.textColor * (0.85f * fade));
+        Utility.drawTextWithShadow(b, countdown, Game1.smallFont,
             new Vector2(boxX + boxWidth - pad - countdownWidth, textY), Game1.textColor * (0.85f * fade));
-    }
-
-    private static string FormatClock(double seconds)
-    {
-        // Manual formatting: TimeSpan custom format strings throw FormatException if the colon is mis-escaped.
-        int total = (int)Math.Max(0, Math.Round(seconds));
-        return $"{total / 60:00}:{total % 60:00}";
-    }
-
-    private void DrawDebugTimer(SpriteBatch b)
-    {
-        if (!Config.ShowDebugTimer)
-            return;
-
-        double interval = Math.Max(1, Config.AdvertisementIntervalMinutes) * 60d;
-        double elapsed = Math.Min(AdClock.Elapsed.TotalSeconds, interval);
-        double remaining = Math.Max(0, interval - elapsed);
-
-        string line1 = $"AD DEBUG  {FormatClock(elapsed)} / {FormatClock(interval)}";
-        string pausedRemaining = GetRemainingText();
-        string line2 = IsAdFree()
-            ? (pausedRemaining.Length > 0 ? $"Advertisements paused - {pausedRemaining}" : "Advertisements paused")
-            : PopupPending
-                ? "Popup waiting for a free moment"
-                : $"Next popup in {FormatClock(remaining)}";
-
-        int pad = 10;
-        float width = Math.Max(Game1.smallFont.MeasureString(line1).X, Game1.tinyFont.MeasureString(line2).X) + pad * 2;
-        int height = Game1.smallFont.LineSpacing + Game1.tinyFont.LineSpacing + pad * 2;
-
-        Rectangle panel = new(12, 12, (int)Math.Ceiling(width), height);
-
-        b.Draw(Game1.staminaRect, panel, new Color(20, 24, 32) * 0.85f);
-        Utility.drawTextWithShadow(b, line1, Game1.smallFont, new Vector2(panel.X + pad, panel.Y + pad), Color.Gold);
-        Utility.drawTextWithShadow(b, line2, Game1.tinyFont,
-            new Vector2(panel.X + pad, panel.Y + pad + Game1.smallFont.LineSpacing), Color.White);
     }
 }
