@@ -4,5 +4,9 @@
   "EnablePopups": true,
   "EnableMail": true,
   "EnableSubscriptions": true,
-  "PopupCorner": "TopRight"
+  "PopupDurationSeconds": 7,
+  "PopupDimAmount": 0.6,
+  "PlayPopupSound": true,
+  "HudButtonSize": 72,
+  "OpenMenuKey": "K"
 }
