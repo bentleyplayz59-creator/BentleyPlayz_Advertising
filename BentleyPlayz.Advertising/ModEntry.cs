@@ -32,6 +32,10 @@ public sealed class ModEntry : Mod
     private double PopupSecondsRemaining;
     private double PopupTotalSeconds;
     private bool PopupPending;
+
+    /// <summary>True while a popup that was requested through the API is showing (it ignores an active ad-free subscription).</summary>
+    private bool PopupForced;
+
     private SubscriptionState Subscription = new();
     private int WelcomeCountdown;
 
@@ -66,6 +70,9 @@ public sealed class ModEntry : Mod
 
         Monitor.Log($"Bentley's Advertising {ModManifest.Version} loaded.", LogLevel.Info);
     }
+
+    /// <summary>Exposes the public API used by companion mods such as Bentley's Advertising Dev Tools.</summary>
+    public override object? GetApi() => new BentleysAdvertisingApi(this);
 
     /*********
     ** Data loading
@@ -254,6 +261,7 @@ public sealed class ModEntry : Mod
     private void ResetPopupState()
     {
         PopupPending = false;
+        PopupForced = false;
         PopupSecondsRemaining = 0;
         PopupTotalSeconds = 0;
         CurrentAdvertiser = null;
@@ -295,10 +303,21 @@ public sealed class ModEntry : Mod
 
         if (IsAdFree())
         {
-            // Start a fresh interval when the subscription ends, and clear anything on screen.
+            // Start a fresh interval when the subscription ends, and clear anything on screen
+            // (except a popup that was explicitly requested through the API, which still runs its course).
             ResetAdClock();
             PopupPending = false;
-            PopupSecondsRemaining = 0;
+            if (PopupForced && PopupSecondsRemaining > 0)
+            {
+                if (CanShowPopupNow() && delta > 0)
+                    PopupSecondsRemaining = Math.Max(0, PopupSecondsRemaining - delta);
+            }
+            else
+            {
+                PopupSecondsRemaining = 0;
+                PopupForced = false;
+            }
+
             return;
         }
 
@@ -348,15 +367,20 @@ public sealed class ModEntry : Mod
         if (alternatives.Count > 0)
             available = alternatives;
 
-        Advertiser advertiser = available[Game1.random.Next(available.Count)];
+        ShowAdvertisement(available[Game1.random.Next(available.Count)], forced: false);
+    }
+
+    private void ShowAdvertisement(Advertiser advertiser, bool forced)
+    {
         CurrentAdvertiser = advertiser.DisplayName;
         CurrentMessage = advertiser.PopupVariations[Game1.random.Next(advertiser.PopupVariations.Count)];
         LastAdvertiserId = advertiser.Id;
         PopupTotalSeconds = Math.Clamp(Config.PopupDurationSeconds, 3, 30);
         PopupSecondsRemaining = PopupTotalSeconds;
+        PopupForced = forced;
         if (Config.PlayPopupSound)
             Game1.playSound("dwop");
-        Monitor.Log($"Showing popup from {advertiser.DisplayName}.", LogLevel.Trace);
+        Monitor.Log($"Showing popup from {advertiser.DisplayName}{(forced ? " (forced)" : "")}.", LogLevel.Trace);
     }
 
     private bool IsAdvertiserUnlocked(Advertiser advertiser) =>
@@ -368,6 +392,103 @@ public sealed class ModEntry : Mod
             "mines" or "mine" or "guild" => Game1.MasterPlayer.mailReceived.Contains("guildQuest"),
             _ => true
         };
+
+    /*********
+    ** Public API (used by companion mods)
+    *********/
+    private Advertiser? FindAdvertiser(string? advertiserId) =>
+        Ads.Advertisers.FirstOrDefault(a => string.Equals(a.Id, advertiserId, StringComparison.OrdinalIgnoreCase));
+
+    internal IReadOnlyList<string> ApiGetAdvertiserIds() =>
+        Ads.Advertisers.Select(a => a.Id).ToList();
+
+    internal string ApiGetAdvertiserName(string advertiserId) =>
+        FindAdvertiser(advertiserId)?.DisplayName ?? advertiserId;
+
+    internal int ApiGetPopupCount(string advertiserId) =>
+        FindAdvertiser(advertiserId)?.PopupVariations.Count ?? 0;
+
+    internal int ApiGetLetterCount(string advertiserId) =>
+        FindAdvertiser(advertiserId)?.MailVariations.Count ?? 0;
+
+    internal string? ApiForcePopup(string advertiserId)
+    {
+        if (!Context.IsWorldReady)
+            return "Load a save first.";
+        if (!Config.Enabled)
+            return "Bentley's Advertising is turned off in its config.";
+
+        Advertiser? advertiser = FindAdvertiser(advertiserId);
+        if (advertiser is null)
+            return "Unknown advertiser.";
+        if (advertiser.PopupVariations.Count == 0)
+            return "That advertiser has no popup text.";
+
+        ShowAdvertisement(advertiser, forced: true);
+        return null;
+    }
+
+    internal string? ApiForceLetter(string advertiserId, bool deliverNow)
+    {
+        if (!Context.IsWorldReady)
+            return "Load a save first.";
+
+        Advertiser? advertiser = FindAdvertiser(advertiserId);
+        if (advertiser is null)
+            return "Unknown advertiser.";
+        if (advertiser.MailVariations.Count == 0)
+            return "That advertiser has no letters.";
+
+        // Prefer a letter the player hasn't received yet; otherwise any letter.
+        List<int> fresh = new();
+        for (int i = 0; i < advertiser.MailVariations.Count; i++)
+        {
+            string candidate = GetMailId(advertiser.Id, i);
+            if (!Game1.player.mailReceived.Contains(candidate)
+                && !Game1.player.mailForTomorrow.Contains(candidate)
+                && !Game1.player.mailbox.Contains(candidate))
+                fresh.Add(i);
+        }
+
+        int index = fresh.Count > 0
+            ? fresh[Game1.random.Next(fresh.Count)]
+            : Game1.random.Next(advertiser.MailVariations.Count);
+        string mailId = GetMailId(advertiser.Id, index);
+
+        if (deliverNow)
+        {
+            if (!Game1.player.mailbox.Contains(mailId))
+                Game1.player.mailbox.Add(mailId);
+        }
+        else if (!Game1.player.mailForTomorrow.Contains(mailId))
+        {
+            Game1.player.mailForTomorrow.Add(mailId);
+        }
+
+        return null;
+    }
+
+    internal void ApiClearAdFree()
+    {
+        Subscription.RealTimeRemainingSeconds = null;
+        Subscription.InGameDayExpiry = null;
+        ResetAdClock();
+    }
+
+    internal string ApiGetStatusText()
+    {
+        if (!Context.IsWorldReady)
+            return "No save loaded.";
+
+        if (IsAdFree())
+        {
+            string remaining = GetRemainingText();
+            return remaining.Length > 0 ? $"Ad-free! {remaining}" : "Advertisements are currently paused.";
+        }
+
+        string next = GetNextAdText();
+        return next.Length > 0 ? next : "Ads are active.";
+    }
 
     /*********
     ** Welcome screen (once per installation)
@@ -773,6 +894,7 @@ public sealed class ModEntry : Mod
 
         PopupPending = false;
         PopupSecondsRemaining = 0;
+        PopupForced = false;
         Game1.addHUDMessage(new HUDMessage($"{offer.DisplayName} purchased!", HUDMessage.achievement_type));
         return true;
     }
@@ -855,7 +977,7 @@ public sealed class ModEntry : Mod
     /// </summary>
     private void DrawAdvertisementPopup(SpriteBatch b)
     {
-        if (PopupSecondsRemaining <= 0 || CurrentMessage is null || IsAdFree() || !CanShowPopupNow())
+        if (PopupSecondsRemaining <= 0 || CurrentMessage is null || (IsAdFree() && !PopupForced) || !CanShowPopupNow())
             return;
 
         int viewW = Game1.uiViewport.Width;
