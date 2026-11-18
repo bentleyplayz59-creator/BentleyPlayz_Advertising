@@ -7,10 +7,6 @@
   "PopupDurationSeconds": 7,
   "PopupDimAmount": 0.6,
   "PlayPopupSound": true,
-  "PopupCorner": "TopRight",
-  "HudButtonPosition": "TopCenter",
-  "HudButtonOffsetFromRight": 372,
-  "HudButtonOffsetFromTop": 20,
   "HudButtonSize": 72,
   "OpenMenuKey": "K"
 }

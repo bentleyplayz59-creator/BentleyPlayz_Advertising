@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Xna.Framework;
@@ -12,10 +11,17 @@ namespace BentleyPlayz.Advertising;
 public sealed class ModEntry : Mod
 {
     private const string MailPrefix = "BentleysAdvertising_";
+    private const string LocalStateFile = "local-state.json";
+
+    /// <summary>Gap between the AD button and the screen edge, in UI pixels.</summary>
+    private const int ButtonMargin = 16;
+
+    /// <summary>Ticks to wait after a save loads before the welcome screen may appear (lets the fade-in finish).</summary>
+    private const int WelcomeDelayTicks = 120;
 
     private ModConfig Config = new();
+    private LocalState Local = new();
     private AdvertisementData Ads = new();
-    private readonly Stopwatch AdClock = new();
     private readonly Dictionary<string, string> DynamicMail = new();
     private string? CurrentAdvertiser;
     private string? CurrentMessage;
@@ -23,15 +29,24 @@ public sealed class ModEntry : Mod
     private double PopupSecondsRemaining;
     private double PopupTotalSeconds;
     private bool PopupPending;
-    private Rectangle HudButton;
     private SubscriptionState Subscription = new();
+    private int WelcomeCountdown;
 
-    /// <summary>Seconds already counted toward the next ad before the stopwatch was last (re)started, e.g. restored from a save.</summary>
-    private double AdBaseSeconds;
+    /// <summary>Play-time seconds counted toward the next ad. Only advances while the game is actively being played.</summary>
+    private double AdElapsedSeconds;
+
+    // AD button press / drag state.
+    private bool Pressing;
+    private bool Dragging;
+    private bool PressUsesGameCoords;
+    private Point PressStart;
+    private Point GrabOffset;
+    private Point? DragTopLeft;
 
     public override void Entry(IModHelper helper)
     {
         Config = helper.ReadConfig<ModConfig>();
+        LoadLocalState();
         LoadAdvertisements();
 
         helper.Events.GameLoop.SaveLoaded += OnSaveLoaded;
@@ -41,14 +56,40 @@ public sealed class ModEntry : Mod
         helper.Events.GameLoop.DayStarted += OnDayStarted;
         helper.Events.Display.RenderedHud += OnRenderedHud;
         helper.Events.Input.ButtonPressed += OnButtonPressed;
+        helper.Events.Input.ButtonReleased += OnButtonReleased;
         helper.Events.Content.AssetRequested += OnAssetRequested;
 
-        Monitor.Log("Bentley's Advertising initialized.", LogLevel.Info);
+        Monitor.Log($"Bentley's Advertising {ModManifest.Version} loaded.", LogLevel.Info);
     }
 
     /*********
     ** Data loading
     *********/
+    private void LoadLocalState()
+    {
+        try
+        {
+            Local = Helper.Data.ReadJsonFile<LocalState>(LocalStateFile) ?? new LocalState();
+        }
+        catch (Exception ex)
+        {
+            Local = new LocalState();
+            Monitor.Log($"Couldn't read {LocalStateFile}; using defaults. {ex.Message}", LogLevel.Warn);
+        }
+    }
+
+    private void SaveLocalState()
+    {
+        try
+        {
+            Helper.Data.WriteJsonFile(LocalStateFile, Local);
+        }
+        catch (Exception ex)
+        {
+            Monitor.Log($"Couldn't save {LocalStateFile}: {ex.Message}", LogLevel.Warn);
+        }
+    }
+
     private void LoadAdvertisements()
     {
         string path = Path.Combine(Helper.DirectoryPath, "advertisements.json");
@@ -130,20 +171,26 @@ public sealed class ModEntry : Mod
     }
 
     /*********
-    ** Ad timer (per save)
+    ** Ad timer (per save, play time only)
     *********/
     private double GetIntervalSeconds() =>
         Math.Max(1, Config.AdvertisementIntervalMinutes) * 60d;
 
-    private double GetAdElapsedSeconds() =>
-        AdBaseSeconds + AdClock.Elapsed.TotalSeconds;
-
     /// <summary>Starts a fresh countdown to the next ad.</summary>
-    private void ResetAdClock()
-    {
-        AdBaseSeconds = 0;
-        AdClock.Restart();
-    }
+    private void ResetAdClock() => AdElapsedSeconds = 0;
+
+    /// <summary>
+    /// True while the game is actually being played. Timers do not advance on the title screen, while the window is
+    /// in the background, or when the app is paused (on Android the game also stops updating entirely then).
+    /// </summary>
+    private static bool IsActivelyPlaying() =>
+        Context.IsWorldReady && Game1.game1.IsActive;
+
+    /// <summary>Seconds of game time that passed this tick, capped so a hitch can never burn a big chunk of a timer.</summary>
+    private static double GetTickSeconds() =>
+        Game1.currentGameTime is null
+            ? 1d / 60d
+            : Math.Min(0.25d, Game1.currentGameTime.ElapsedGameTime.TotalSeconds);
 
     /*********
     ** Save / lifecycle
@@ -152,28 +199,50 @@ public sealed class ModEntry : Mod
     {
         // Everything here is stored inside the save file, so each save has its own subscription and ad timer.
         Subscription = Helper.Data.ReadSaveData<SubscriptionState>("subscription-state") ?? new SubscriptionState();
+        MigrateLegacySubscription();
         ResetPopupState();
+        CancelButtonPress();
 
         // Pick the countdown up where the save left off. The cap gives a short grace period so an ad that was
         // almost due when you saved doesn't pop up the instant the save finishes loading.
         double interval = GetIntervalSeconds();
         double saved = Subscription.AdTimerSeconds ?? 0;
-        AdBaseSeconds = Math.Clamp(saved, 0, Math.Max(0, interval - 20));
-        AdClock.Restart();
+        AdElapsedSeconds = Math.Clamp(saved, 0, Math.Max(0, interval - 20));
+
+        WelcomeCountdown = WelcomeDelayTicks;
+    }
+
+    /// <summary>
+    /// Saves from 0.2.x stored a wall-clock expiry time. Convert whatever was left into play-time seconds so existing
+    /// subscriptions carry over, and stop using the wall-clock field.
+    /// </summary>
+    private void MigrateLegacySubscription()
+    {
+        if (Subscription.RealTimeExpiryUtc is not DateTime legacy)
+            return;
+
+        DateTime expiry = legacy.Kind == DateTimeKind.Unspecified
+            ? DateTime.SpecifyKind(legacy, DateTimeKind.Utc)
+            : legacy.ToUniversalTime();
+        double left = (expiry - DateTime.UtcNow).TotalSeconds;
+        if (left > 0)
+            Subscription.RealTimeRemainingSeconds = Math.Max(Subscription.RealTimeRemainingSeconds ?? 0d, left);
+
+        Subscription.RealTimeExpiryUtc = null;
     }
 
     private void OnReturnedToTitle(object? sender, ReturnedToTitleEventArgs e)
     {
-        // The countdown stays stopped while you're on the title screen; the next loaded save sets its own.
+        // Nothing counts down on the title screen; the next loaded save sets its own timer.
         ResetPopupState();
-        AdBaseSeconds = 0;
-        AdClock.Reset();
+        CancelButtonPress();
+        AdElapsedSeconds = 0;
     }
 
     private void OnSaving(object? sender, SavingEventArgs e)
     {
         // Remember how far into the countdown we are, so quitting and loading this save resumes from here.
-        Subscription.AdTimerSeconds = IsAdFree() ? 0 : GetAdElapsedSeconds();
+        Subscription.AdTimerSeconds = IsAdFree() ? 0 : AdElapsedSeconds;
         Helper.Data.WriteSaveData("subscription-state", Subscription);
     }
 
@@ -188,22 +257,33 @@ public sealed class ModEntry : Mod
     }
 
     /*********
-    ** Popup scheduling
+    ** Per-tick update
     *********/
     /// <summary>
     /// Popups are drawn on the HUD layer, which is hidden during menus and cutscenes. An ad that fires then
-    /// used to count down unseen and expire. Now it waits until the player can actually see it.
+    /// waits until the player can actually see it.
     /// </summary>
     private static bool CanShowPopupNow() =>
         Context.IsWorldReady && Game1.activeClickableMenu == null && !Game1.eventUp && Game1.displayHUD;
 
     private void OnUpdateTicked(object? sender, UpdateTickedEventArgs e)
     {
+        UpdateButtonPress();
+
         if (!Context.IsWorldReady || !Config.Enabled)
             return;
 
-        if (Subscription.RealTimeExpiryUtc is not null && DateTime.UtcNow >= Subscription.RealTimeExpiryUtc.Value)
-            Subscription.RealTimeExpiryUtc = null;
+        ShowWelcomeIfNeeded();
+
+        bool playing = IsActivelyPlaying();
+        double delta = playing ? GetTickSeconds() : 0d;
+
+        // Subscription time left only counts down while the game is actually being played.
+        if (delta > 0 && Subscription.RealTimeRemainingSeconds is double remaining)
+        {
+            remaining -= delta;
+            Subscription.RealTimeRemainingSeconds = remaining > 0 ? remaining : null;
+        }
 
         if (Subscription.InGameDayExpiry is not null && GetAbsoluteGameDay() >= Subscription.InGameDayExpiry.Value)
             Subscription.InGameDayExpiry = null;
@@ -217,16 +297,14 @@ public sealed class ModEntry : Mod
             return;
         }
 
-        if (!AdClock.IsRunning)
-            AdClock.Start();
-
         bool canShow = CanShowPopupNow();
 
         // Only count the popup's lifetime down while it can actually be seen.
-        if (PopupSecondsRemaining > 0 && canShow && Game1.currentGameTime is not null)
-            PopupSecondsRemaining = Math.Max(0, PopupSecondsRemaining - Game1.currentGameTime.ElapsedGameTime.TotalSeconds);
+        if (PopupSecondsRemaining > 0 && canShow && delta > 0)
+            PopupSecondsRemaining = Math.Max(0, PopupSecondsRemaining - delta);
 
-        if (GetAdElapsedSeconds() >= GetIntervalSeconds())
+        AdElapsedSeconds += delta;
+        if (AdElapsedSeconds >= GetIntervalSeconds())
         {
             ResetAdClock();
             if (Config.EnablePopups)
@@ -241,7 +319,7 @@ public sealed class ModEntry : Mod
     }
 
     private bool IsAdFree() =>
-        (Subscription.RealTimeExpiryUtc is not null && DateTime.UtcNow < Subscription.RealTimeExpiryUtc.Value) ||
+        (Subscription.RealTimeRemainingSeconds is double seconds && seconds > 0) ||
         (Subscription.InGameDayExpiry is not null && GetAbsoluteGameDay() < Subscription.InGameDayExpiry.Value);
 
     private static int GetAbsoluteGameDay() =>
@@ -273,7 +351,7 @@ public sealed class ModEntry : Mod
         PopupSecondsRemaining = PopupTotalSeconds;
         if (Config.PlayPopupSound)
             Game1.playSound("dwop");
-        Monitor.Log($"Showing popup from {advertiser.DisplayName}.", LogLevel.Debug);
+        Monitor.Log($"Showing popup from {advertiser.DisplayName}.", LogLevel.Trace);
     }
 
     private bool IsAdvertiserUnlocked(Advertiser advertiser) =>
@@ -285,6 +363,32 @@ public sealed class ModEntry : Mod
             "mines" or "mine" or "guild" => Game1.MasterPlayer.mailReceived.Contains("guildQuest"),
             _ => true
         };
+
+    /*********
+    ** Welcome screen (once per installation)
+    *********/
+    private void ShowWelcomeIfNeeded()
+    {
+        if (Local.WelcomeShown)
+            return;
+
+        if (WelcomeCountdown > 0)
+        {
+            WelcomeCountdown--;
+            return;
+        }
+
+        // Wait for a quiet moment: no menu, cutscene, festival or dialogue on screen.
+        if (!Context.CanPlayerMove || Game1.activeClickableMenu != null)
+            return;
+
+        // Record it as shown before opening, so it can never appear twice.
+        Local.WelcomeShown = true;
+        SaveLocalState();
+
+        string? keyName = Config.OpenMenuKey == SButton.None ? null : Config.OpenMenuKey.ToString();
+        Game1.activeClickableMenu = new WelcomeMenu(keyName);
+    }
 
     /*********
     ** Mail
@@ -336,8 +440,8 @@ public sealed class ModEntry : Mod
     {
         List<string> parts = new();
 
-        if (Subscription.RealTimeExpiryUtc is not null && DateTime.UtcNow < Subscription.RealTimeExpiryUtc.Value)
-            parts.Add($"{FormatRemaining(Subscription.RealTimeExpiryUtc.Value - DateTime.UtcNow)} left");
+        if (Subscription.RealTimeRemainingSeconds is double seconds && seconds > 0)
+            parts.Add($"{FormatRemaining(TimeSpan.FromSeconds(seconds))} left");
 
         if (Subscription.InGameDayExpiry is not null)
         {
@@ -361,32 +465,100 @@ public sealed class ModEntry : Mod
         if (PopupPending)
             return "An ad is waiting - it shows once you close this menu.";
 
-        double remaining = Math.Max(0, GetIntervalSeconds() - GetAdElapsedSeconds());
+        double remaining = Math.Max(0, GetIntervalSeconds() - AdElapsedSeconds);
         return $"Next ad in {FormatRemaining(TimeSpan.FromSeconds(Math.Ceiling(remaining)))}";
     }
 
     /*********
-    ** Input
+    ** AD button: position, input and dragging
     *********/
     private bool CanUseHudButton() =>
         Config.Enabled && Config.EnableSubscriptions && Context.IsWorldReady && Game1.activeClickableMenu == null
         && !Game1.eventUp && Game1.displayHUD;
 
+    private int GetButtonSize() => Math.Clamp(Config.HudButtonSize, 48, 128);
+
+    /// <summary>The range the button's top-left corner may occupy so it always stays fully on screen.</summary>
+    private static void GetButtonRange(int size, out int minX, out int minY, out int maxX, out int maxY)
+    {
+        minX = ButtonMargin;
+        minY = ButtonMargin;
+        maxX = Math.Max(minX, Game1.uiViewport.Width - size - ButtonMargin);
+        maxY = Math.Max(minY, Game1.uiViewport.Height - size - ButtonMargin);
+    }
+
+    /// <summary>
+    /// One rectangle is used for both drawing and clicking, so the two can't drift apart.
+    /// Default is the bottom-right corner; a saved or in-progress drag position overrides it. Always clamped on screen.
+    /// </summary>
+    private Rectangle GetHudButtonBounds()
+    {
+        int size = GetButtonSize();
+        GetButtonRange(size, out int minX, out int minY, out int maxX, out int maxY);
+
+        int x;
+        int y;
+        if (DragTopLeft is Point drag)
+        {
+            x = drag.X;
+            y = drag.Y;
+        }
+        else if (Local.ButtonX is float fx && Local.ButtonY is float fy)
+        {
+            x = minX + (int)Math.Round(Math.Clamp(fx, 0f, 1f) * (maxX - minX));
+            y = minY + (int)Math.Round(Math.Clamp(fy, 0f, 1f) * (maxY - minY));
+        }
+        else
+        {
+            x = maxX;
+            y = maxY;
+        }
+
+        x = Math.Clamp(x, minX, maxX);
+        y = Math.Clamp(y, minY, maxY);
+        return new Rectangle(x, y, size, size);
+    }
+
     /// <summary>The tappable area: the drawn button plus a little slack, because fingers are bigger than cursors.</summary>
     private Rectangle GetHudButtonHitArea()
     {
-        if (HudButton.Width <= 0 || HudButton.Height <= 0)
-            return Rectangle.Empty;
-
-        Rectangle hit = HudButton;
+        Rectangle hit = GetHudButtonBounds();
         hit.Inflate(10, 10);
         return hit;
+    }
+
+    private void StoreButtonPosition(Rectangle bounds)
+    {
+        GetButtonRange(bounds.Width, out int minX, out int minY, out int maxX, out int maxY);
+        Local.ButtonX = maxX > minX ? (float)(bounds.X - minX) / (maxX - minX) : 0f;
+        Local.ButtonY = maxY > minY ? (float)(bounds.Y - minY) / (maxY - minY) : 0f;
+    }
+
+    /// <summary>Puts the AD button back in its default bottom-right corner.</summary>
+    private void ResetButtonPosition()
+    {
+        Local.ButtonX = null;
+        Local.ButtonY = null;
+        DragTopLeft = null;
+        SaveLocalState();
     }
 
     private void OpenSubscriptionMenu()
     {
         Game1.playSound("bigSelect");
-        Game1.activeClickableMenu = new SubscriptionMenu(Ads.SubscriptionOffers, IsAdFree, GetRemainingText, GetNextAdText, PurchaseOffer);
+        Game1.activeClickableMenu = new SubscriptionMenu(Ads.SubscriptionOffers, IsAdFree, GetRemainingText, GetNextAdText, PurchaseOffer, ResetButtonPosition);
+    }
+
+    private Point GetPointer(bool useGameCoords) =>
+        useGameCoords
+            ? new Point(Game1.getMouseX(true), Game1.getMouseY(true))
+            : Helper.Input.GetCursorPosition().GetScaledScreenPixels().ToPoint();
+
+    private void CancelButtonPress()
+    {
+        Pressing = false;
+        Dragging = false;
+        DragTopLeft = null;
     }
 
     private void OnButtonPressed(object? sender, ButtonPressedEventArgs e)
@@ -405,34 +577,124 @@ public sealed class ModEntry : Mod
             return;
         }
 
-        if (e.Button != SButton.MouseLeft && !e.Button.IsUseToolButton())
+        // Mouse or touch: a quick tap opens the menu on release, press-and-drag moves the button.
+        if (e.Button == SButton.MouseLeft)
+        {
+            BeginPress(e);
+            return;
+        }
+
+        // Gamepad use-tool button while the cursor is over the AD button.
+        if (!e.Button.IsUseToolButton())
             return;
 
-        // The button is drawn in UI space, so compare against UI-scaled coordinates. Game1.getMouseX/Y(true) is the
-        // same space vanilla menus use for their own clicks; checking both covers any difference between them.
         Point scaled = e.Cursor.GetScaledScreenPixels().ToPoint();
         Point game = new(Game1.getMouseX(true), Game1.getMouseY(true));
         Rectangle hit = GetHudButtonHitArea();
-        bool hitButton = hit != Rectangle.Empty && (hit.Contains(scaled) || hit.Contains(game));
-
-        // Only visible in the SMAPI log when trace logging is on; handy if taps ever stop registering.
-        Rectangle near = hit;
-        near.Inflate(300, 300);
-        if (hit != Rectangle.Empty && (near.Contains(scaled) || near.Contains(game)))
-        {
-            Monitor.Log(
-                $"[AD-INPUT] {e.Button} scaled=({scaled.X},{scaled.Y}) game=({game.X},{game.Y}) button={hit} " +
-                $"ui={Game1.uiViewport.Width}x{Game1.uiViewport.Height} hit={hitButton}",
-                LogLevel.Trace);
-        }
-
-        if (!hitButton)
+        if (!hit.Contains(scaled) && !hit.Contains(game))
             return;
 
         Helper.Input.Suppress(e.Button);
         OpenSubscriptionMenu();
     }
 
+    private void BeginPress(ButtonPressedEventArgs e)
+    {
+        // The button is drawn in UI space, so compare against UI-scaled coordinates. Game1.getMouseX/Y(true) is the
+        // same space vanilla menus use for their own clicks; accepting either covers any difference between them,
+        // and the one that hit is used for the rest of the press so movement stays consistent.
+        Rectangle hit = GetHudButtonHitArea();
+        Point scaled = e.Cursor.GetScaledScreenPixels().ToPoint();
+        Point game = new(Game1.getMouseX(true), Game1.getMouseY(true));
+        bool viaScaled = hit.Contains(scaled);
+        if (!viaScaled && !hit.Contains(game))
+            return;
+
+        PressUsesGameCoords = !viaScaled;
+        Point pointer = viaScaled ? scaled : game;
+        Rectangle bounds = GetHudButtonBounds();
+
+        Pressing = true;
+        Dragging = false;
+        PressStart = pointer;
+        GrabOffset = new Point(pointer.X - bounds.X, pointer.Y - bounds.Y);
+        Helper.Input.Suppress(e.Button);
+    }
+
+    private void OnButtonReleased(object? sender, ButtonReleasedEventArgs e)
+    {
+        if (e.Button == SButton.MouseLeft)
+            FinishPress();
+    }
+
+    /// <summary>Follows the finger/cursor while a press is held, turning it into a drag once it moves far enough.</summary>
+    private void UpdateButtonPress()
+    {
+        if (!Pressing)
+            return;
+
+        if (!CanUseHudButton())
+        {
+            CancelButtonPress();
+            return;
+        }
+
+        // Fallback in case the release event was missed.
+        if (!Helper.Input.IsDown(SButton.MouseLeft))
+        {
+            FinishPress();
+            return;
+        }
+
+        // Keep the game from treating the held press as a tool swing or walk command.
+        Helper.Input.Suppress(SButton.MouseLeft);
+
+        Point pointer = GetPointer(PressUsesGameCoords);
+        if (!Dragging)
+        {
+            int slop = Math.Max(12, GetButtonSize() / 5);
+            int dx = pointer.X - PressStart.X;
+            int dy = pointer.Y - PressStart.Y;
+            if (dx * dx + dy * dy < slop * slop)
+                return;
+
+            Dragging = true;
+        }
+
+        DragTopLeft = new Point(pointer.X - GrabOffset.X, pointer.Y - GrabOffset.Y);
+    }
+
+    private void FinishPress()
+    {
+        if (!Pressing)
+            return;
+
+        bool wasDragging = Dragging;
+        Pressing = false;
+        Dragging = false;
+
+        if (wasDragging)
+        {
+            // A drag never opens the menu; it just saves the new position.
+            Rectangle bounds = GetHudButtonBounds();
+            DragTopLeft = null;
+            StoreButtonPosition(bounds);
+            SaveLocalState();
+            return;
+        }
+
+        DragTopLeft = null;
+        if (!CanUseHudButton())
+            return;
+
+        // A tap: open the menu if the finger is still on the button.
+        if (GetHudButtonHitArea().Contains(GetPointer(PressUsesGameCoords)))
+            OpenSubscriptionMenu();
+    }
+
+    /*********
+    ** Purchasing
+    *********/
     private bool PurchaseOffer(SubscriptionOffer offer)
     {
         if (!Config.EnableSubscriptions)
@@ -441,6 +703,12 @@ public sealed class ModEntry : Mod
         if (offer.DurationMinutes <= 0 && offer.DurationInGameDays <= 0)
         {
             Monitor.Log($"Offer '{offer.Id}' has no duration, so it can't be purchased.", LogLevel.Warn);
+            return false;
+        }
+
+        if (offer.Price < 0)
+        {
+            Monitor.Log($"Offer '{offer.Id}' has a negative price, so it can't be purchased.", LogLevel.Warn);
             return false;
         }
 
@@ -453,12 +721,7 @@ public sealed class ModEntry : Mod
         Game1.player.Money -= offer.Price;
 
         if (offer.DurationMinutes > 0)
-        {
-            DateTime start = Subscription.RealTimeExpiryUtc is not null && Subscription.RealTimeExpiryUtc.Value > DateTime.UtcNow
-                ? Subscription.RealTimeExpiryUtc.Value
-                : DateTime.UtcNow;
-            Subscription.RealTimeExpiryUtc = start.AddMinutes(offer.DurationMinutes);
-        }
+            Subscription.RealTimeRemainingSeconds = Math.Max(0d, Subscription.RealTimeRemainingSeconds ?? 0d) + offer.DurationMinutes * 60d;
 
         if (offer.DurationInGameDays > 0)
         {
@@ -509,60 +772,34 @@ public sealed class ModEntry : Mod
         }
     }
 
-    /// <summary>
-    /// One rectangle is used for both drawing and clicking, so the two can't drift apart.
-    /// Default is top-center of the screen, which none of the vanilla or Android HUD elements use.
-    /// </summary>
-    private Rectangle ComputeHudButtonBounds()
-    {
-        int size = Math.Clamp(Config.HudButtonSize, 48, 128);
-        int viewW = Game1.uiViewport.Width;
-        int x = (viewW - size) / 2;
-        int y = Config.HudButtonOffsetFromTop;
-
-        string mode = (Config.HudButtonPosition ?? "TopCenter").Trim();
-        if (mode.Equals("Custom", StringComparison.OrdinalIgnoreCase))
-        {
-            x = viewW - Config.HudButtonOffsetFromRight;
-        }
-        else if (mode.Equals("LeftOfClock", StringComparison.OrdinalIgnoreCase) && Game1.dayTimeMoneyBox is not null)
-        {
-            int clockLeft = Game1.dayTimeMoneyBox.xPositionOnScreen;
-            int clockTop = Game1.dayTimeMoneyBox.yPositionOnScreen;
-            if (clockLeft > size + 24 && clockLeft < viewW)
-            {
-                x = clockLeft - size - 16;
-                y = Math.Max(clockTop, 8) + 12;
-            }
-        }
-
-        x = Math.Clamp(x, 8, Math.Max(8, viewW - size - 8));
-        y = Math.Clamp(y, 8, Math.Max(8, Game1.uiViewport.Height - size - 8));
-        return new Rectangle(x, y, size, size);
-    }
-
     private void DrawHudButton(SpriteBatch b)
     {
-        HudButton = ComputeHudButtonBounds();
-
         if (!CanUseHudButton())
             return;
 
-        Rectangle area = HudButton;
+        Rectangle area = GetHudButtonBounds();
         bool adFree = IsAdFree();
         bool hovered = GetHudButtonHitArea().Contains(Game1.getMouseX(true), Game1.getMouseY(true));
 
-        // Drop shadow so the button doesn't melt into the HUD.
-        b.Draw(Game1.staminaRect, new Rectangle(area.X + 4, area.Y + 6, area.Width, area.Height), Color.Black * 0.35f);
+        // Drop shadow so the button doesn't melt into the HUD (a little deeper while it is being dragged).
+        int lift = Dragging ? 8 : 4;
+        b.Draw(Game1.staminaRect, new Rectangle(area.X + lift, area.Y + lift + 2, area.Width, area.Height), Color.Black * 0.35f);
 
-        Color tint = adFree ? Color.LightGreen : hovered ? Color.Yellow : Color.Gold;
+        Color tint = Dragging ? Color.Orange : adFree ? Color.LightGreen : (hovered || Pressing) ? Color.Yellow : Color.Gold;
         StardewValley.Menus.IClickableMenu.drawTextureBox(
             b, Game1.mouseCursors, new Rectangle(432, 439, 9, 9),
             area.X, area.Y, area.Width, area.Height, tint, 4f, false);
 
         const string label = "AD";
-        Vector2 size = Game1.dialogueFont.MeasureString(label);
-        Utility.drawTextWithShadow(b, label, Game1.dialogueFont,
+        SpriteFont labelFont = Game1.dialogueFont;
+        Vector2 size = labelFont.MeasureString(label);
+        if (size.X > area.Width - 14)
+        {
+            labelFont = Game1.smallFont;
+            size = labelFont.MeasureString(label);
+        }
+
+        Utility.drawTextWithShadow(b, label, labelFont,
             new Vector2(area.X + (area.Width - size.X) / 2f, area.Y + (area.Height - size.Y) / 2f),
             adFree ? Color.DarkGreen : new Color(140, 30, 20));
     }

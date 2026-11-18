@@ -269,39 +269,39 @@
     {
       "Id": "QuickBreak",
       "DisplayName": "Quick Break",
-      "Price": 500,
+      "Price": 1000,
       "DurationMinutes": 60,
       "DurationInGameDays": 0,
-      "Description": "Ad-free for 1 real-world hour."
+      "Description": "Ad-free for 1 hour of play time."
     },
     {
       "Id": "ExtendedBreak",
       "DisplayName": "Extended Break",
-      "Price": 1500,
+      "Price": 2800,
       "DurationMinutes": 180,
       "DurationInGameDays": 0,
-      "Description": "Ad-free for 3 real-world hours."
+      "Description": "Ad-free for 3 hours of play time."
     },
     {
       "Id": "LongBreak",
       "DisplayName": "Long Break",
-      "Price": 3000,
+      "Price": 5400,
       "DurationMinutes": 360,
       "DurationInGameDays": 0,
-      "Description": "Ad-free for 6 real-world hours."
+      "Description": "Ad-free for 6 hours of play time."
     },
     {
       "Id": "FullDay",
       "DisplayName": "Full Day",
-      "Price": 5000,
+      "Price": 20000,
       "DurationMinutes": 1440,
       "DurationInGameDays": 0,
-      "Description": "Ad-free for 24 real-world hours."
+      "Description": "Ad-free for 24 hours of play time."
     },
     {
       "Id": "MonthlyPass",
       "DisplayName": "Monthly Pass",
-      "Price": 25000,
+      "Price": 35000,
       "DurationMinutes": 0,
       "DurationInGameDays": 28,
       "Description": "Ad-free for 28 in-game days."

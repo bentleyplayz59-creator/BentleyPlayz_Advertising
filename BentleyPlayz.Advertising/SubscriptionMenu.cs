@@ -1,5 +1,6 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using Microsoft.Xna.Framework.Input;
 using StardewValley;
 using StardewValley.BellsAndWhistles;
 using StardewValley.Menus;
@@ -9,19 +10,22 @@ namespace BentleyPlayz.Advertising;
 /// <summary>
 /// The subscription shop, built as a real vanilla menu so touch input, UI scaling and the
 /// dialogue-box frame all behave like the rest of the game.
-/// Tap an offer to select it, then press Buy. (Two steps so a stray touch can never spend 25,000g.)
-/// It also shows how long until the next ad, or how long the current ad-free period has left.
+/// Tap an offer to select it, press Buy, then confirm. (Two taps plus a confirmation so a stray touch can never
+/// spend a large amount of gold.) It also shows how long until the next ad, or how long the current ad-free period
+/// has left, and holds the "Reset AD button" control.
 /// </summary>
 internal sealed class SubscriptionMenu : IClickableMenu
 {
     private const int SidePadding = 36;
     private const int MessageDurationMs = 4000;
+    private const string ResetLabel = "Reset AD button";
 
     private readonly List<SubscriptionOffer> Offers;
     private readonly Func<bool> IsPaused;
     private readonly Func<string> GetRemainingText;
     private readonly Func<string> GetNextAdText;
     private readonly Func<SubscriptionOffer, bool> TryPurchase;
+    private readonly Action ResetButtonPosition;
 
     private bool Compact;
     private int RowHeight = 96;
@@ -34,6 +38,7 @@ internal sealed class SubscriptionMenu : IClickableMenu
     private int VisibleRows;
     private int SelectedIndex = -1;
     private Rectangle BuyButton;
+    private Rectangle ResetButton;
     private ClickableTextureComponent? UpArrow;
     private ClickableTextureComponent? DownArrow;
 
@@ -44,12 +49,21 @@ internal sealed class SubscriptionMenu : IClickableMenu
     private int DragStartY = int.MinValue;
     private int DragStartFirstRow;
 
+    // Purchase confirmation overlay.
+    private bool Confirming;
+    private SubscriptionOffer? ConfirmOffer;
+    private readonly List<(string Text, Color Color)> ConfirmLines = new();
+    private Rectangle ConfirmPanel;
+    private Rectangle ConfirmYes;
+    private Rectangle ConfirmNo;
+
     public SubscriptionMenu(
         List<SubscriptionOffer> offers,
         Func<bool> isPaused,
         Func<string> getRemainingText,
         Func<string> getNextAdText,
-        Func<SubscriptionOffer, bool> tryPurchase)
+        Func<SubscriptionOffer, bool> tryPurchase,
+        Action resetButtonPosition)
         : base(0, 0, 0, 0, true)
     {
         this.Offers = offers;
@@ -57,6 +71,7 @@ internal sealed class SubscriptionMenu : IClickableMenu
         this.GetRemainingText = getRemainingText;
         this.GetNextAdText = getNextAdText;
         this.TryPurchase = tryPurchase;
+        this.ResetButtonPosition = resetButtonPosition;
         this.Layout();
     }
 
@@ -64,6 +79,12 @@ internal sealed class SubscriptionMenu : IClickableMenu
     {
         base.gameWindowSizeChanged(oldBounds, newBounds);
         this.Layout();
+    }
+
+    public override bool readyToClose()
+    {
+        // While the confirmation is up, Escape / back cancels it instead of closing the whole menu.
+        return !this.Confirming;
     }
 
     private void Layout()
@@ -102,14 +123,26 @@ internal sealed class SubscriptionMenu : IClickableMenu
             new Rectangle(337, 494, 12, 12),
             4f);
 
+        // Footer controls row: [Reset AD button]  [  Buy  ]  [up][down]
         int footerTop = this.yPositionOnScreen + this.HeaderHeight + this.VisibleRows * perRow;
         int controlsY = footerTop + this.FooterHeight - this.ButtonHeight - 28;
         bool needsArrows = this.Offers.Count > this.VisibleRows;
-        int reserve = needsArrows ? 112 : 0;
+        const int gap = 12;
 
-        int buttonWidth = Math.Clamp(this.width - 2 * (SidePadding + reserve), 160, 300);
+        int left = this.xPositionOnScreen + SidePadding;
+        int right = this.xPositionOnScreen + this.width - SidePadding;
+        int inner = right - left;
+
+        int resetWidth = Math.Min((int)Game1.smallFont.MeasureString(ResetLabel).X + 36, inner / 3);
+        this.ResetButton = new Rectangle(left, controlsY, resetWidth, this.ButtonHeight);
+
+        int rightReserve = needsArrows ? 100 : 0;
+        int middleLeft = left + resetWidth + gap;
+        int middleRight = right - rightReserve - (needsArrows ? gap : 0);
+        int middleWidth = Math.Max(0, middleRight - middleLeft);
+        int buttonWidth = Math.Clamp(middleWidth, 120, 300);
         this.BuyButton = new Rectangle(
-            this.xPositionOnScreen + (this.width - buttonWidth) / 2,
+            middleLeft + (middleWidth - buttonWidth) / 2,
             controlsY,
             buttonWidth,
             this.ButtonHeight);
@@ -117,7 +150,7 @@ internal sealed class SubscriptionMenu : IClickableMenu
         if (needsArrows)
         {
             int arrowY = controlsY + (this.ButtonHeight - 48) / 2;
-            int downX = this.xPositionOnScreen + this.width - SidePadding - 44;
+            int downX = right - 44;
             this.DownArrow = new ClickableTextureComponent(
                 new Rectangle(downX, arrowY, 44, 48),
                 Game1.mouseCursors,
@@ -134,6 +167,9 @@ internal sealed class SubscriptionMenu : IClickableMenu
             this.UpArrow = null;
             this.DownArrow = null;
         }
+
+        if (this.Confirming)
+            this.LayoutConfirm();
     }
 
     private Rectangle GetRowBounds(int visibleIndex)
@@ -161,8 +197,118 @@ internal sealed class SubscriptionMenu : IClickableMenu
         this.FeedbackTimerMs = MessageDurationMs;
     }
 
+    /*********
+    ** Purchase confirmation
+    *********/
+    private void OpenConfirm(SubscriptionOffer offer)
+    {
+        this.ConfirmOffer = offer;
+        this.Confirming = true;
+        this.LayoutConfirm();
+    }
+
+    private void AddConfirmLines(string text, int textWidth, Color color)
+    {
+        foreach (string line in Game1.parseText(text, Game1.smallFont, textWidth).Split('\n', StringSplitOptions.RemoveEmptyEntries))
+            this.ConfirmLines.Add((line.Trim(), color));
+    }
+
+    private void LayoutConfirm()
+    {
+        if (this.ConfirmOffer is null)
+            return;
+
+        SubscriptionOffer offer = this.ConfirmOffer;
+        int money = Game1.player.Money;
+        int viewWidth = Game1.uiViewport.Width;
+        int viewHeight = Game1.uiViewport.Height;
+
+        const int pad = 28;
+        int panelWidth = Math.Min(viewWidth - 32, 560);
+        int textWidth = panelWidth - pad * 2;
+
+        this.ConfirmLines.Clear();
+        this.AddConfirmLines($"Buy {offer.DisplayName}?", textWidth, Color.Firebrick);
+        this.AddConfirmLines($"Ad-free for {FormatDuration(offer)}.", textWidth, Game1.textColor);
+        this.AddConfirmLines($"Price: {offer.Price:N0}g", textWidth, Game1.textColor);
+        this.AddConfirmLines($"You have {money:N0}g ({money - offer.Price:N0}g left after buying).", textWidth, Game1.textColor);
+        if (this.IsPaused())
+            this.AddConfirmLines("This is added to your current ad-free time.", textWidth, new Color(60, 110, 40));
+
+        int linesHeight = this.ConfirmLines.Count * Game1.smallFont.LineSpacing;
+        int panelHeight = pad + linesHeight + 18 + this.ButtonHeight + pad;
+
+        int panelX = (viewWidth - panelWidth) / 2;
+        int panelY = Math.Max(8, (viewHeight - panelHeight) / 2);
+        this.ConfirmPanel = new Rectangle(panelX, panelY, panelWidth, panelHeight);
+
+        int buttonWidth = (panelWidth - pad * 2 - 16) / 2;
+        int buttonY = panelY + panelHeight - pad - this.ButtonHeight;
+        this.ConfirmYes = new Rectangle(panelX + pad, buttonY, buttonWidth, this.ButtonHeight);
+        this.ConfirmNo = new Rectangle(this.ConfirmYes.Right + 16, buttonY, buttonWidth, this.ButtonHeight);
+    }
+
+    private void CancelConfirm()
+    {
+        Game1.playSound("smallSelect");
+        this.Confirming = false;
+        this.ConfirmOffer = null;
+    }
+
+    private void ConfirmPurchase()
+    {
+        SubscriptionOffer? offer = this.ConfirmOffer;
+        this.Confirming = false;
+        this.ConfirmOffer = null;
+        if (offer is null)
+            return;
+
+        // Re-check at the last moment, in case anything changed while the confirmation was open.
+        int money = Game1.player.Money;
+        if (money < offer.Price)
+        {
+            Game1.playSound("cancel");
+            this.ShowFeedback($"Not enough gold - you need {offer.Price - money:N0}g more.", true);
+            return;
+        }
+
+        if (this.TryPurchase(offer))
+        {
+            Game1.playSound("purchaseClick");
+            this.ShowFeedback($"Purchased {offer.DisplayName}! Ad-free for {FormatDuration(offer)}.", false);
+        }
+        else
+        {
+            Game1.playSound("cancel");
+            this.ShowFeedback("That purchase couldn't be completed.", true);
+        }
+    }
+
+    /*********
+    ** Input
+    *********/
+    public override void receiveKeyPress(Keys key)
+    {
+        if (this.Confirming && key == Keys.Escape)
+        {
+            this.CancelConfirm();
+            return;
+        }
+
+        base.receiveKeyPress(key);
+    }
+
     public override void receiveLeftClick(int x, int y, bool playSound = true)
     {
+        if (this.Confirming)
+        {
+            if (this.ConfirmYes.Contains(x, y))
+                this.ConfirmPurchase();
+            else if (this.ConfirmNo.Contains(x, y) || !this.ConfirmPanel.Contains(x, y))
+                this.CancelConfirm();
+            return;
+        }
+
         // The base class handles the upper-right close button.
         base.receiveLeftClick(x, y, playSound);
 
@@ -175,6 +321,14 @@ internal sealed class SubscriptionMenu : IClickableMenu
         if (this.DownArrow?.containsPoint(x, y) == true)
         {
             this.Scroll(1);
+            return;
+        }
+
+        if (this.ResetButton.Contains(x, y))
+        {
+            this.ResetButtonPosition();
+            Game1.playSound("bigSelect");
+            this.ShowFeedback("AD button moved back to the bottom-right corner.", false);
             return;
         }
 
@@ -212,7 +366,7 @@ internal sealed class SubscriptionMenu : IClickableMenu
     {
         base.leftClickHeld(x, y);
 
-        if (this.DragStartY == int.MinValue || this.Offers.Count <= this.VisibleRows)
+        if (this.Confirming || this.DragStartY == int.MinValue || this.Offers.Count <= this.VisibleRows)
             return;
 
         int steps = (this.DragStartY - y) / (this.RowHeight + this.RowGap);
@@ -244,22 +398,16 @@ internal sealed class SubscriptionMenu : IClickableMenu
             return;
         }
 
-        if (this.TryPurchase(offer))
-        {
-            Game1.playSound("purchaseClick");
-            this.ShowFeedback($"Purchased {offer.DisplayName}!", false);
-        }
-        else
-        {
-            Game1.playSound("cancel");
-            this.ShowFeedback("That purchase couldn't be completed.", true);
-        }
+        // Nothing is spent until the player confirms.
+        Game1.playSound("smallSelect");
+        this.OpenConfirm(offer);
     }
 
     public override void receiveScrollWheelAction(int direction)
     {
         base.receiveScrollWheelAction(direction);
-        this.Scroll(direction > 0 ? -1 : 1);
+        if (!this.Confirming)
+            this.Scroll(direction > 0 ? -1 : 1);
     }
 
     private void Scroll(int delta)
@@ -285,6 +433,9 @@ internal sealed class SubscriptionMenu : IClickableMenu
         }
     }
 
+    /*********
+    ** Drawing
+    *********/
     public override void draw(SpriteBatch b)
     {
         b.Draw(Game1.fadeToBlackRect, Game1.graphics.GraphicsDevice.Viewport.Bounds, Color.Black * 0.5f);
@@ -350,6 +501,7 @@ internal sealed class SubscriptionMenu : IClickableMenu
 
         int mouseX = Game1.getMouseX(true);
         int mouseY = Game1.getMouseY(true);
+        bool interactive = !this.Confirming;
         for (int i = 0; i < this.VisibleRows; i++)
         {
             int index = this.FirstRow + i;
@@ -360,7 +512,7 @@ internal sealed class SubscriptionMenu : IClickableMenu
             Rectangle row = this.GetRowBounds(i);
             bool canAfford = Game1.player.Money >= offer.Price;
             bool selected = index == this.SelectedIndex;
-            bool hovered = row.Contains(mouseX, mouseY);
+            bool hovered = interactive && row.Contains(mouseX, mouseY);
 
             Color rowTint = selected ? Color.LightGreen : hovered ? Color.Wheat : Color.White;
             IClickableMenu.drawTextureBox(
@@ -390,7 +542,7 @@ internal sealed class SubscriptionMenu : IClickableMenu
                 new Vector2(innerLeft, row.Y + 12 + lineHeight), Game1.textColor * 0.85f);
         }
 
-        // Footer: feedback line, Buy button, scroll arrows.
+        // Footer: feedback line, then the controls row (Reset AD button, Buy, scroll arrows).
         int footerTop = this.yPositionOnScreen + this.HeaderHeight + this.VisibleRows * (this.RowHeight + this.RowGap);
         string? footerText = null;
         Color footerColor = Game1.textColor;
@@ -413,10 +565,23 @@ internal sealed class SubscriptionMenu : IClickableMenu
                 new Vector2(this.xPositionOnScreen + (this.width - footerSize.X) / 2f, footerTop), footerColor);
         }
 
+        // Reset AD button.
+        bool resetHovered = interactive && this.ResetButton.Contains(mouseX, mouseY);
+        IClickableMenu.drawTextureBox(
+            b, Game1.mouseCursors, new Rectangle(432, 439, 9, 9),
+            this.ResetButton.X, this.ResetButton.Y, this.ResetButton.Width, this.ResetButton.Height,
+            resetHovered ? Color.Wheat : Color.White, 4f, false);
+        string resetText = TrimToWidth(ResetLabel, Game1.smallFont, this.ResetButton.Width - 20);
+        Vector2 resetSize = Game1.smallFont.MeasureString(resetText);
+        Utility.drawTextWithShadow(b, resetText, Game1.smallFont,
+            new Vector2(this.ResetButton.X + (this.ResetButton.Width - resetSize.X) / 2f, this.ResetButton.Y + (this.ResetButton.Height - resetSize.Y) / 2f),
+            Game1.textColor);
+
+        // Buy button.
         bool hasSelection = this.SelectedIndex >= 0 && this.SelectedIndex < this.Offers.Count;
         bool canBuy = hasSelection && Game1.player.Money >= this.Offers[this.SelectedIndex].Price;
         string buyLabel = !hasSelection ? "Buy" : canBuy ? $"Buy for {this.Offers[this.SelectedIndex].Price:N0}g" : "Not enough gold";
-        bool buyHovered = canBuy && this.BuyButton.Contains(mouseX, mouseY);
+        bool buyHovered = interactive && canBuy && this.BuyButton.Contains(mouseX, mouseY);
 
         IClickableMenu.drawTextureBox(
             b, Game1.mouseCursors, new Rectangle(432, 439, 9, 9),
@@ -432,8 +597,48 @@ internal sealed class SubscriptionMenu : IClickableMenu
         this.UpArrow?.draw(b, this.FirstRow > 0 ? Color.White : Color.Gray, 0.88f);
         this.DownArrow?.draw(b, this.FirstRow < this.Offers.Count - this.VisibleRows ? Color.White : Color.Gray, 0.88f);
 
-        this.upperRightCloseButton?.draw(b);
+        if (this.Confirming)
+        {
+            this.DrawConfirm(b, mouseX, mouseY);
+        }
+        else
+        {
+            this.upperRightCloseButton?.draw(b);
+        }
+
         this.drawMouse(b);
+    }
+
+    private void DrawConfirm(SpriteBatch b, int mouseX, int mouseY)
+    {
+        b.Draw(Game1.fadeToBlackRect, Game1.graphics.GraphicsDevice.Viewport.Bounds, Color.Black * 0.55f);
+
+        IClickableMenu.drawTextureBox(
+            b, Game1.menuTexture, new Rectangle(0, 256, 60, 60),
+            this.ConfirmPanel.X, this.ConfirmPanel.Y, this.ConfirmPanel.Width, this.ConfirmPanel.Height, Color.White);
+
+        float y = this.ConfirmPanel.Y + 28;
+        foreach ((string text, Color color) in this.ConfirmLines)
+        {
+            Utility.drawTextWithShadow(b, text, Game1.smallFont, new Vector2(this.ConfirmPanel.X + 28, y), color);
+            y += Game1.smallFont.LineSpacing;
+        }
+
+        DrawTextButton(b, this.ConfirmYes, "Yes, buy", this.ConfirmYes.Contains(mouseX, mouseY) ? Color.Wheat : Color.LightGreen);
+        DrawTextButton(b, this.ConfirmNo, "Cancel", this.ConfirmNo.Contains(mouseX, mouseY) ? Color.Wheat : Color.White);
+    }
+
+    private static void DrawTextButton(SpriteBatch b, Rectangle area, string label, Color tint)
+    {
+        IClickableMenu.drawTextureBox(
+            b, Game1.mouseCursors, new Rectangle(432, 439, 9, 9),
+            area.X, area.Y, area.Width, area.Height, tint, 4f, false);
+
+        string text = TrimToWidth(label, Game1.smallFont, area.Width - 24);
+        Vector2 size = Game1.smallFont.MeasureString(text);
+        Utility.drawTextWithShadow(b, text, Game1.smallFont,
+            new Vector2(area.X + (area.Width - size.X) / 2f, area.Y + (area.Height - size.Y) / 2f),
+            Game1.textColor);
     }
 
     private static void DrawOutline(SpriteBatch b, Rectangle area, int thickness, Color color)
@@ -454,10 +659,10 @@ internal sealed class SubscriptionMenu : IClickableMenu
             if (offer.DurationMinutes % 60 == 0)
             {
                 int hours = offer.DurationMinutes / 60;
-                parts.Add(hours == 1 ? "1 real-world hour" : $"{hours} real-world hours");
+                parts.Add(hours == 1 ? "1 hour of play time" : $"{hours} hours of play time");
             }
             else
-                parts.Add($"{offer.DurationMinutes} real-world minutes");
+                parts.Add($"{offer.DurationMinutes} minutes of play time");
         }
 
         if (offer.DurationInGameDays > 0)

@@ -3,7 +3,11 @@
     <TargetFramework>net6.0</TargetFramework>
     <RootNamespace>BentleyPlayz.Advertising</RootNamespace>
     <AssemblyName>BentleyPlayz.Advertising</AssemblyName>
-    <Version>0.2.1</Version>
+    <Version>1.0.0</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <InformationalVersion>1.0.0</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <EnableModDeploy>false</EnableModDeploy>
@@ -13,7 +17,7 @@
     <PackageReference Include="Pathoschild.Stardew.ModBuildConfig" Version="4.4.0" />
   </ItemGroup>
   <ItemGroup>
-    <None Update="config.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- config.json is intentionally NOT packaged: SMAPI creates it on first launch, so updating the mod never overwrites a player's settings. -->
     <None Update="advertisements.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
