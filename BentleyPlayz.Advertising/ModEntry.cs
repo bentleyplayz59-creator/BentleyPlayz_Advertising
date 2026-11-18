@@ -75,6 +75,16 @@ public sealed class ModEntry : Mod
             Local = new LocalState();
             Monitor.Log($"Couldn't read {LocalStateFile}; using defaults. {ex.Message}", LogLevel.Warn);
         }
+
+        // One-time migration: move existing installations from the old right-side default to bottom-left.
+        // After this migration, player-dragged positions are preserved across restarts.
+        if (Local.ButtonPositionVersion < 1)
+        {
+            Local.ButtonX = 0f;
+            Local.ButtonY = 1f;
+            Local.ButtonPositionVersion = 1;
+            SaveLocalState();
+        }
     }
 
     private void SaveLocalState()
