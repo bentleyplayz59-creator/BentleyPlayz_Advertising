@@ -18,7 +18,7 @@ Updating: replace the `BentleyPlayz.Advertising` folder with the new one. Your s
 - **Randomized advertisement popups** on a timer (five minutes by default). The screen dims and a parchment box with a red ADVERTISEMENT tab shows the advertiser's name and message for a few seconds. Player movement is never blocked, and a popup that fires during a menu or cutscene waits until you can see it.
 - **Advertising letters** delivered through the in-game mailbox. Advertisers can be gated behind progression, such as the repaired bus.
 - **Multiple message variations** per advertiser, avoiding consecutive repeats where possible.
-- **Ad-free subscriptions** bought with in-game gold (see below). While a subscription is active no popups or letters are generated.
+- **Ad-free subscriptions** bought with in-game gold (see below), split into a **Short Duration** section at the top of the shop and longer subscriptions below. While a subscription is active no popups or letters are generated.
 - **Draggable AD button.** Defaults to the bottom-right corner; drag it anywhere on screen with a mouse or a finger. The position is saved and the button always stays fully on screen.
 - **First-launch welcome screen** that explains the mod once per installation.
 - **Per-save timers.** The countdown to the next ad and your subscription are stored in each save file. Both only count down while you are actually playing: they stop on the title screen and while the game is in the background or paused.
@@ -41,16 +41,17 @@ A drag never opens the menu or triggers anything underneath the button.
 
 Open the AD menu to see the time until the next ad, your gold, every offer's price and length, and the time left on an active subscription. Every purchase asks for confirmation and shows your gold before and after. If you cannot afford an offer, the menu says exactly how much more gold you need. Buying while already ad-free adds the new time on top.
 
-| Offer | Price | Ad-free for |
-| --- | ---: | --- |
-| Quick Break | 5,000g | 1 hour of play time |
-| Extended Break | 12,000g | 3 hours of play time |
-| Long Break | 22,000g | 6 hours of play time |
-| 10-Hour Pass | 32,000g | 10 hours of play time |
-| 15-Hour Pass | 42,000g | 15 hours of play time |
-| 20-Hour Pass | 52,000g | 20 hours of play time |
-| Full Day | 60,000g | 24 hours of play time |
-| Monthly Pass | 250,000g | 28 in-game days |
+| Section | Offer | Price | Ad-free for |
+| --- | --- | ---: | --- |
+| **Short Duration** | 5-Minute Pass | 250g | 5 minutes of play time |
+| **Short Duration** | 10-Minute Pass | 500g | 10 minutes of play time |
+| **Short Duration** | 15-Minute Pass | 750g | 15 minutes of play time |
+| **Short Duration** | 20-Minute Pass | 1,000g | 20 minutes of play time |
+| Longer Subscriptions | Quick Break | 5,000g | 1 hour of play time |
+| Longer Subscriptions | Extended Break | 12,000g | 3 hours of play time |
+| Longer Subscriptions | Long Break | 22,000g | 6 hours of play time |
+| Longer Subscriptions | Full Day | 60,000g | 24 hours of play time |
+| Longer Subscriptions | Monthly Pass | 250,000g | 28 in-game days |
 
 "Play time" is time you are actually playing; it does not run while the game is closed or in the background. Prices and offers can be changed in `advertisements.json`.
 

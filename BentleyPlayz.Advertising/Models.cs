@@ -51,6 +51,8 @@ public sealed class SubscriptionOffer
 {
     public string Id { get; set; } = "";
     public string DisplayName { get; set; } = "";
+    /// <summary>Groups short-duration minute passes separately from standard subscriptions.</summary>
+    public string Category { get; set; } = "Standard";
     public int Price { get; set; }
 
     /// <summary>Ad-free time in minutes of actual play time (the countdown only runs while the game is being played).</summary>

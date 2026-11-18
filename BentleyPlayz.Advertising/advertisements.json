@@ -267,6 +267,42 @@
   ],
   "SubscriptionOffers": [
     {
+      "Id": "FiveMinutePass",
+      "DisplayName": "5-Minute Pass",
+      "Category": "ShortDuration",
+      "Price": 250,
+      "DurationMinutes": 5,
+      "DurationInGameDays": 0,
+      "Description": "Ad-free for 5 minutes of play time."
+    },
+    {
+      "Id": "TenMinutePass",
+      "DisplayName": "10-Minute Pass",
+      "Category": "ShortDuration",
+      "Price": 500,
+      "DurationMinutes": 10,
+      "DurationInGameDays": 0,
+      "Description": "Ad-free for 10 minutes of play time."
+    },
+    {
+      "Id": "FifteenMinutePass",
+      "DisplayName": "15-Minute Pass",
+      "Category": "ShortDuration",
+      "Price": 750,
+      "DurationMinutes": 15,
+      "DurationInGameDays": 0,
+      "Description": "Ad-free for 15 minutes of play time."
+    },
+    {
+      "Id": "TwentyMinutePass",
+      "DisplayName": "20-Minute Pass",
+      "Category": "ShortDuration",
+      "Price": 1000,
+      "DurationMinutes": 20,
+      "DurationInGameDays": 0,
+      "Description": "Ad-free for 20 minutes of play time."
+    },
+    {
       "Id": "QuickBreak",
       "DisplayName": "Quick Break",
       "Price": 5000,
@@ -289,30 +325,6 @@
       "DurationMinutes": 360,
       "DurationInGameDays": 0,
       "Description": "Ad-free for 6 hours of play time."
-    },
-    {
-      "Id": "TenHourPass",
-      "DisplayName": "10-Hour Pass",
-      "Price": 32000,
-      "DurationMinutes": 600,
-      "DurationInGameDays": 0,
-      "Description": "Ad-free for 10 hours of play time."
-    },
-    {
-      "Id": "FifteenHourPass",
-      "DisplayName": "15-Hour Pass",
-      "Price": 42000,
-      "DurationMinutes": 900,
-      "DurationInGameDays": 0,
-      "Description": "Ad-free for 15 hours of play time."
-    },
-    {
-      "Id": "TwentyHourPass",
-      "DisplayName": "20-Hour Pass",
-      "Price": 52000,
-      "DurationMinutes": 1200,
-      "DurationInGameDays": 0,
-      "Description": "Ad-free for 20 hours of play time."
     },
     {
       "Id": "FullDay",

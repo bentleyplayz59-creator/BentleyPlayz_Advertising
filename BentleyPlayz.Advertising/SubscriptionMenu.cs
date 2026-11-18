@@ -21,6 +21,7 @@ internal sealed class SubscriptionMenu : IClickableMenu
     private const string ResetLabel = "Reset AD button";
 
     private readonly List<SubscriptionOffer> Offers;
+    private readonly List<MenuEntry> Entries = new();
     private readonly Func<bool> IsPaused;
     private readonly Func<string> GetRemainingText;
     private readonly Func<string> GetNextAdText;
@@ -67,12 +68,37 @@ internal sealed class SubscriptionMenu : IClickableMenu
         : base(0, 0, 0, 0, true)
     {
         this.Offers = offers;
+        this.BuildEntries();
         this.IsPaused = isPaused;
         this.GetRemainingText = getRemainingText;
         this.GetNextAdText = getNextAdText;
         this.TryPurchase = tryPurchase;
         this.ResetButtonPosition = resetButtonPosition;
         this.Layout();
+    }
+
+    private sealed record MenuEntry(string? SectionTitle, SubscriptionOffer? Offer, int OfferIndex);
+
+    private void BuildEntries()
+    {
+        this.Entries.Clear();
+        var shortOffers = this.Offers.Select((offer, index) => (Offer: offer, Index: index))
+            .Where(item => string.Equals(item.Offer.Category, "ShortDuration", StringComparison.OrdinalIgnoreCase)).ToList();
+        var standardOffers = this.Offers.Select((offer, index) => (Offer: offer, Index: index))
+            .Where(item => !string.Equals(item.Offer.Category, "ShortDuration", StringComparison.OrdinalIgnoreCase)).ToList();
+
+        if (shortOffers.Count > 0)
+        {
+            this.Entries.Add(new MenuEntry("SHORT DURATION", null, -1));
+            foreach (var item in shortOffers)
+                this.Entries.Add(new MenuEntry(null, item.Offer, item.Index));
+        }
+        if (standardOffers.Count > 0)
+        {
+            this.Entries.Add(new MenuEntry("LONGER SUBSCRIPTIONS", null, -1));
+            foreach (var item in standardOffers)
+                this.Entries.Add(new MenuEntry(null, item.Offer, item.Index));
+        }
     }
 
     public override void gameWindowSizeChanged(Rectangle oldBounds, Rectangle newBounds)
@@ -106,13 +132,13 @@ internal sealed class SubscriptionMenu : IClickableMenu
         int perRow = this.RowHeight + this.RowGap;
 
         int fit = Math.Max(1, (maxHeight - this.HeaderHeight - this.FooterHeight) / perRow);
-        this.VisibleRows = Math.Max(1, Math.Min(this.Offers.Count, fit));
+        this.VisibleRows = Math.Max(1, Math.Min(this.Entries.Count, fit));
         this.height = this.HeaderHeight + this.VisibleRows * perRow + this.FooterHeight;
 
         this.xPositionOnScreen = (viewWidth - this.width) / 2;
         this.yPositionOnScreen = Math.Max(8, (viewHeight - this.height) / 2);
 
-        this.FirstRow = Math.Clamp(this.FirstRow, 0, Math.Max(0, this.Offers.Count - this.VisibleRows));
+        this.FirstRow = Math.Clamp(this.FirstRow, 0, Math.Max(0, this.Entries.Count - this.VisibleRows));
 
         this.upperRightCloseButton = new ClickableTextureComponent(
             "exit",
@@ -126,7 +152,7 @@ internal sealed class SubscriptionMenu : IClickableMenu
         // Footer controls row: [Reset AD button]  [  Buy  ]  [up][down]
         int footerTop = this.yPositionOnScreen + this.HeaderHeight + this.VisibleRows * perRow;
         int controlsY = footerTop + this.FooterHeight - this.ButtonHeight - 28;
-        bool needsArrows = this.Offers.Count > this.VisibleRows;
+        bool needsArrows = this.Entries.Count > this.VisibleRows;
         const int gap = 12;
 
         int left = this.xPositionOnScreen + SidePadding;
@@ -348,14 +374,17 @@ internal sealed class SubscriptionMenu : IClickableMenu
         for (int i = 0; i < this.VisibleRows; i++)
         {
             int index = this.FirstRow + i;
-            if (index >= this.Offers.Count)
+            if (index >= this.Entries.Count)
                 break;
 
             if (this.GetRowBounds(i).Contains(x, y))
             {
-                if (this.SelectedIndex != index)
+                MenuEntry entry = this.Entries[index];
+                if (entry.Offer is null)
+                    return;
+                if (this.SelectedIndex != entry.OfferIndex)
                     Game1.playSound("smallSelect");
-                this.SelectedIndex = index;
+                this.SelectedIndex = entry.OfferIndex;
                 this.FeedbackText = null;
                 return;
             }
@@ -366,11 +395,11 @@ internal sealed class SubscriptionMenu : IClickableMenu
     {
         base.leftClickHeld(x, y);
 
-        if (this.Confirming || this.DragStartY == int.MinValue || this.Offers.Count <= this.VisibleRows)
+        if (this.Confirming || this.DragStartY == int.MinValue || this.Entries.Count <= this.VisibleRows)
             return;
 
         int steps = (this.DragStartY - y) / (this.RowHeight + this.RowGap);
-        int max = Math.Max(0, this.Offers.Count - this.VisibleRows);
+        int max = Math.Max(0, this.Entries.Count - this.VisibleRows);
         this.FirstRow = Math.Clamp(this.DragStartFirstRow + steps, 0, max);
     }
 
@@ -412,7 +441,7 @@ internal sealed class SubscriptionMenu : IClickableMenu
 
     private void Scroll(int delta)
     {
-        int max = Math.Max(0, this.Offers.Count - this.VisibleRows);
+        int max = Math.Max(0, this.Entries.Count - this.VisibleRows);
         int next = Math.Clamp(this.FirstRow + delta, 0, max);
         if (next != this.FirstRow)
         {
@@ -493,7 +522,7 @@ internal sealed class SubscriptionMenu : IClickableMenu
         }
 
         // Offers.
-        if (this.Offers.Count == 0)
+        if (this.Entries.Count == 0)
         {
             Utility.drawTextWithShadow(b, "No subscription offers are available.", Game1.smallFont,
                 new Vector2(this.xPositionOnScreen + SidePadding, this.yPositionOnScreen + this.HeaderHeight + 12), Game1.textColor);
@@ -505,13 +534,22 @@ internal sealed class SubscriptionMenu : IClickableMenu
         for (int i = 0; i < this.VisibleRows; i++)
         {
             int index = this.FirstRow + i;
-            if (index >= this.Offers.Count)
+            if (index >= this.Entries.Count)
                 break;
 
-            SubscriptionOffer offer = this.Offers[index];
+            MenuEntry entry = this.Entries[index];
             Rectangle row = this.GetRowBounds(i);
+            if (entry.Offer is null)
+            {
+                Utility.drawTextWithShadow(b, entry.SectionTitle ?? "", Game1.smallFont,
+                    new Vector2(row.X + 8, row.Y + 12), new Color(120, 75, 30));
+                b.Draw(Game1.staminaRect, new Rectangle(row.X, row.Bottom - 3, row.Width, 2), new Color(160, 125, 75) * 0.65f);
+                continue;
+            }
+
+            SubscriptionOffer offer = entry.Offer;
             bool canAfford = Game1.player.Money >= offer.Price;
-            bool selected = index == this.SelectedIndex;
+            bool selected = entry.OfferIndex == this.SelectedIndex;
             bool hovered = interactive && row.Contains(mouseX, mouseY);
 
             Color rowTint = selected ? Color.LightGreen : hovered ? Color.Wheat : Color.White;
@@ -595,7 +633,7 @@ internal sealed class SubscriptionMenu : IClickableMenu
             canBuy ? Game1.textColor : Game1.textColor * 0.6f);
 
         this.UpArrow?.draw(b, this.FirstRow > 0 ? Color.White : Color.Gray, 0.88f);
-        this.DownArrow?.draw(b, this.FirstRow < this.Offers.Count - this.VisibleRows ? Color.White : Color.Gray, 0.88f);
+        this.DownArrow?.draw(b, this.FirstRow < this.Entries.Count - this.VisibleRows ? Color.White : Color.Gray, 0.88f);
 
         if (this.Confirming)
         {
