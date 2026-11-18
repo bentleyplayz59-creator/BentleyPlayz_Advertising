@@ -25,5 +25,5 @@ jobs:
       - name: Upload compiled mod ZIP
         uses: Pathoschild/SMAPI-ModBuildWorkflow/upload-release-artifacts@v1
         with:
-          path: _releases
+          path: BentleyPlayz.Advertising/bin/Release/net6.0
           create_attestations: false
