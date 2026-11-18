@@ -8,10 +8,9 @@
   "PopupDimAmount": 0.6,
   "PlayPopupSound": true,
   "PopupCorner": "TopRight",
-  "ShowDebugTimer": true,
+  "HudButtonPosition": "TopCenter",
   "HudButtonOffsetFromRight": 372,
   "HudButtonOffsetFromTop": 20,
   "HudButtonSize": 72,
-  "AnchorHudButtonToClock": true,
   "OpenMenuKey": "K"
 }

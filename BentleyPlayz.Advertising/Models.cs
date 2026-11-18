@@ -19,23 +19,23 @@ public sealed class ModConfig
     /// <summary>Plays a short attention sound when a popup appears.</summary>
     public bool PlayPopupSound { get; set; } = true;
 
-    /// <summary>No longer used: popups are now centered over the game. Kept so existing config files stay valid.</summary>
+    /// <summary>No longer used: popups are centered over the game. Kept so existing config files stay valid.</summary>
     public string PopupCorner { get; set; } = "TopRight";
 
-    /// <summary>Shows the on-screen countdown used to verify that popups fire on schedule, and logs taps near the AD button.</summary>
-    public bool ShowDebugTimer { get; set; } = true;
+    /// <summary>
+    /// Where the AD button goes: "TopCenter" (default, clear of every vanilla/Android HUD element),
+    /// "LeftOfClock", or "Custom" (uses HudButtonOffsetFromRight).
+    /// </summary>
+    public string HudButtonPosition { get; set; } = "TopCenter";
 
-    /// <summary>Fallback distance in UI pixels from the right edge of the screen to the left edge of the AD button (used when the clock position can't be read, or AnchorHudButtonToClock is false).</summary>
+    /// <summary>Only used when HudButtonPosition is "Custom": distance in UI pixels from the right edge of the screen to the left edge of the AD button.</summary>
     public int HudButtonOffsetFromRight { get; set; } = 372;
 
-    /// <summary>Fallback distance in UI pixels from the top of the screen to the top of the AD button.</summary>
+    /// <summary>Distance in UI pixels from the top of the screen to the top of the AD button.</summary>
     public int HudButtonOffsetFromTop { get; set; } = 20;
 
     /// <summary>Width and height of the AD button in UI pixels (48-128). Bigger is easier to tap on a phone.</summary>
     public int HudButtonSize { get; set; } = 72;
-
-    /// <summary>Places the AD button just left of the in-game clock instead of using the fixed offsets.</summary>
-    public bool AnchorHudButtonToClock { get; set; } = true;
 
     /// <summary>Keyboard shortcut that opens the subscription menu (set to None to disable).</summary>
     public SButton OpenMenuKey { get; set; } = SButton.K;
@@ -72,8 +72,12 @@ public sealed class SubscriptionOffer
     public string Description { get; set; } = "";
 }
 
+/// <summary>Everything the mod stores inside a save file (so each save has its own subscription and ad timer).</summary>
 public sealed class SubscriptionState
 {
     public DateTime? RealTimeExpiryUtc { get; set; }
     public int? InGameDayExpiry { get; set; }
+
+    /// <summary>Seconds already counted toward the next ad when the game was last saved.</summary>
+    public double? AdTimerSeconds { get; set; }
 }
