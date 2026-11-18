@@ -12,7 +12,6 @@ namespace BentleyPlayz.Advertising;
 public sealed class ModEntry : Mod
 {
     private const string MailPrefix = "BentleysAdvertising_";
-    private const double PopupDurationSeconds = 9;
 
     private ModConfig Config = new();
     private AdvertisementData Ads = new();
@@ -22,6 +21,7 @@ public sealed class ModEntry : Mod
     private string? CurrentMessage;
     private string? LastAdvertiserId;
     private double PopupSecondsRemaining;
+    private double PopupTotalSeconds;
     private bool PopupPending;
     private Rectangle HudButton;
     private SubscriptionState Subscription = new();
@@ -151,6 +151,7 @@ public sealed class ModEntry : Mod
     {
         PopupPending = false;
         PopupSecondsRemaining = 0;
+        PopupTotalSeconds = 0;
         CurrentAdvertiser = null;
         CurrentMessage = null;
         LastAdvertiserId = null;
@@ -239,7 +240,10 @@ public sealed class ModEntry : Mod
         CurrentAdvertiser = advertiser.DisplayName;
         CurrentMessage = advertiser.PopupVariations[Game1.random.Next(advertiser.PopupVariations.Count)];
         LastAdvertiserId = advertiser.Id;
-        PopupSecondsRemaining = PopupDurationSeconds;
+        PopupTotalSeconds = Math.Clamp(Config.PopupDurationSeconds, 3, 30);
+        PopupSecondsRemaining = PopupTotalSeconds;
+        if (Config.PlayPopupSound)
+            Game1.playSound("dwop");
         Monitor.Log($"Showing popup from {advertiser.DisplayName}.", LogLevel.Debug);
     }
 
@@ -285,31 +289,118 @@ public sealed class ModEntry : Mod
     }
 
     /*********
+    ** Subscription status
+    *********/
+    private static string FormatRemaining(TimeSpan span)
+    {
+        if (span < TimeSpan.Zero)
+            span = TimeSpan.Zero;
+
+        if (span.TotalHours >= 1)
+            return $"{(int)span.TotalHours}h {span.Minutes:00}m {span.Seconds:00}s";
+
+        return $"{span.Minutes}m {span.Seconds:00}s";
+    }
+
+    /// <summary>Time left on whichever subscriptions are active, e.g. "52m 10s left" or "12 in-game days left". Empty when none.</summary>
+    private string GetRemainingText()
+    {
+        List<string> parts = new();
+
+        if (Subscription.RealTimeExpiryUtc is not null && DateTime.UtcNow < Subscription.RealTimeExpiryUtc.Value)
+            parts.Add($"{FormatRemaining(Subscription.RealTimeExpiryUtc.Value - DateTime.UtcNow)} left");
+
+        if (Subscription.InGameDayExpiry is not null)
+        {
+            int days = Subscription.InGameDayExpiry.Value - GetAbsoluteGameDay();
+            if (days > 0)
+                parts.Add(days == 1 ? "1 in-game day left" : $"{days} in-game days left");
+        }
+
+        return string.Join("  +  ", parts);
+    }
+
+    /*********
     ** Input
     *********/
     private bool CanUseHudButton() =>
-        Config.EnableSubscriptions && Context.IsWorldReady && Game1.activeClickableMenu == null
+        Config.Enabled && Config.EnableSubscriptions && Context.IsWorldReady && Game1.activeClickableMenu == null
         && !Game1.eventUp && Game1.displayHUD;
+
+    /// <summary>The tappable area: the drawn button plus a little slack, because fingers are bigger than cursors.</summary>
+    private Rectangle GetHudButtonHitArea()
+    {
+        if (HudButton.Width <= 0 || HudButton.Height <= 0)
+            return Rectangle.Empty;
+
+        Rectangle hit = HudButton;
+        hit.Inflate(10, 10);
+        return hit;
+    }
+
+    private void OpenSubscriptionMenu()
+    {
+        Game1.playSound("bigSelect");
+        Game1.activeClickableMenu = new SubscriptionMenu(Ads.SubscriptionOffers, IsAdFree, GetRemainingText, PurchaseOffer);
+    }
 
     private void OnButtonPressed(object? sender, ButtonPressedEventArgs e)
     {
-        if (!CanUseHudButton() || (e.Button != SButton.MouseLeft && !e.Button.IsUseToolButton()))
+        if (!CanUseHudButton())
             return;
 
-        // UI-scaled coordinates match the rectangles drawn in RenderedHud (raw ScreenPixels do not on Android/zoomed UI).
-        Point cursor = e.Cursor.GetScaledScreenPixels().ToPoint();
-        if (!HudButton.Contains(cursor))
+        // Optional keyboard shortcut (handy for testing the menu independently of the HUD button).
+        if (Config.OpenMenuKey != SButton.None && e.Button == Config.OpenMenuKey)
+        {
+            if (Game1.chatBox is not null && Game1.chatBox.isActive())
+                return;
+
+            Helper.Input.Suppress(e.Button);
+            OpenSubscriptionMenu();
+            return;
+        }
+
+        if (e.Button != SButton.MouseLeft && !e.Button.IsUseToolButton())
+            return;
+
+        // The button is drawn in UI space, so compare against UI-scaled coordinates. Game1.getMouseX/Y(true) is the
+        // same space vanilla menus use for their own clicks; checking both covers any difference between them.
+        Point scaled = e.Cursor.GetScaledScreenPixels().ToPoint();
+        Point game = new(Game1.getMouseX(true), Game1.getMouseY(true));
+        Rectangle hit = GetHudButtonHitArea();
+        bool hitButton = hit != Rectangle.Empty && (hit.Contains(scaled) || hit.Contains(game));
+
+        if (Config.ShowDebugTimer)
+        {
+            Rectangle near = hit;
+            near.Inflate(300, 300);
+            if (near.Contains(scaled) || near.Contains(game))
+            {
+                Monitor.Log(
+                    $"[AD-INPUT] {e.Button} scaled=({scaled.X},{scaled.Y}) game=({game.X},{game.Y}) " +
+                    $"raw=({e.Cursor.ScreenPixels.X:0},{e.Cursor.ScreenPixels.Y:0}) button={hit} " +
+                    $"ui={Game1.uiViewport.Width}x{Game1.uiViewport.Height} uiScale={Game1.options.uiScale:0.00} hit={hitButton}",
+                    LogLevel.Debug);
+            }
+        }
+
+        if (!hitButton)
             return;
 
         Helper.Input.Suppress(e.Button);
-        Game1.playSound("bigSelect");
-        Game1.activeClickableMenu = new SubscriptionMenu(Ads.SubscriptionOffers, IsAdFree, PurchaseOffer);
+        OpenSubscriptionMenu();
     }
 
     private bool PurchaseOffer(SubscriptionOffer offer)
     {
         if (!Config.EnableSubscriptions)
             return false;
+
+        if (offer.DurationMinutes <= 0 && offer.DurationInGameDays <= 0)
+        {
+            Monitor.Log($"Offer '{offer.Id}' has no duration, so it can't be purchased.", LogLevel.Warn);
+            return false;
+        }
 
         if (Game1.player.Money < offer.Price)
         {
@@ -353,8 +444,10 @@ public sealed class ModEntry : Mod
         SpriteBatch b = e.SpriteBatch;
 
         // Keep each element isolated so one failure can never hide the others.
-        SafeDraw(() => DrawHudButton(b), "AD button");
+        // Order matters: the popup dims the screen first, then the AD button is drawn on top of the dimming
+        // (so it stays visible and tappable during an ad), then the debug timer.
         SafeDraw(() => DrawAdvertisementPopup(b), "advertisement popup");
+        SafeDraw(() => DrawHudButton(b), "AD button");
         SafeDraw(() => DrawDebugTimer(b), "debug timer");
     }
 
@@ -375,67 +468,169 @@ public sealed class ModEntry : Mod
         }
     }
 
+    /// <summary>
+    /// One rectangle is used for both drawing and clicking, so the two can't drift apart.
+    /// It sits just left of the in-game clock; if the clock's position can't be read, the config offsets are used.
+    /// </summary>
+    private Rectangle ComputeHudButtonBounds()
+    {
+        int size = Math.Clamp(Config.HudButtonSize, 48, 128);
+        int x = Game1.uiViewport.Width - Config.HudButtonOffsetFromRight;
+        int y = Config.HudButtonOffsetFromTop;
+
+        if (Config.AnchorHudButtonToClock && Game1.dayTimeMoneyBox is not null)
+        {
+            int clockLeft = Game1.dayTimeMoneyBox.xPositionOnScreen;
+            int clockTop = Game1.dayTimeMoneyBox.yPositionOnScreen;
+            if (clockLeft > size + 24 && clockLeft < Game1.uiViewport.Width)
+            {
+                x = clockLeft - size - 16;
+                y = Math.Max(clockTop, 8) + 12;
+            }
+        }
+
+        x = Math.Clamp(x, 8, Math.Max(8, Game1.uiViewport.Width - size - 8));
+        y = Math.Clamp(y, 8, Math.Max(8, Game1.uiViewport.Height - size - 8));
+        return new Rectangle(x, y, size, size);
+    }
+
     private void DrawHudButton(SpriteBatch b)
     {
-        HudButton = new Rectangle(
-            Game1.uiViewport.Width - Config.HudButtonOffsetFromRight,
-            Config.HudButtonOffsetFromTop,
-            48, 48);
+        HudButton = ComputeHudButtonBounds();
 
         if (!CanUseHudButton())
             return;
 
-        DrawFrame(b, HudButton);
-        const string label = "AD";
-        Vector2 size = Game1.smallFont.MeasureString(label);
-        Utility.drawTextWithShadow(b, label, Game1.smallFont,
-            new Vector2(HudButton.X + (HudButton.Width - size.X) / 2f, HudButton.Y + (HudButton.Height - size.Y) / 2f),
-            Game1.textColor);
-    }
+        Rectangle area = HudButton;
+        bool adFree = IsAdFree();
+        bool hovered = GetHudButtonHitArea().Contains(Game1.getMouseX(true), Game1.getMouseY(true));
 
-    private static void DrawFrame(SpriteBatch b, Rectangle area) =>
+        // Drop shadow so the button doesn't melt into the HUD.
+        b.Draw(Game1.staminaRect, new Rectangle(area.X + 4, area.Y + 6, area.Width, area.Height), Color.Black * 0.35f);
+
+        Color tint = adFree ? Color.LightGreen : hovered ? Color.Yellow : Color.Gold;
         StardewValley.Menus.IClickableMenu.drawTextureBox(
             b, Game1.mouseCursors, new Rectangle(432, 439, 9, 9),
-            area.X, area.Y, area.Width, area.Height, Color.White, 4f, false);
+            area.X, area.Y, area.Width, area.Height, tint, 4f, false);
 
+        const string label = "AD";
+        Vector2 size = Game1.dialogueFont.MeasureString(label);
+        Utility.drawTextWithShadow(b, label, Game1.dialogueFont,
+            new Vector2(area.X + (area.Width - size.X) / 2f, area.Y + (area.Height - size.Y) / 2f),
+            adFree ? Color.DarkGreen : new Color(140, 30, 20));
+    }
+
+    private static void DrawCentered(SpriteBatch b, string text, SpriteFont font, float centerX, float y, Color color)
+    {
+        Vector2 size = font.MeasureString(text);
+        Utility.drawTextWithShadow(b, text, font, new Vector2(centerX - size.X / 2f, y), color);
+    }
+
+    /// <summary>
+    /// A deliberately loud interruption: the whole view dims and a big parchment box with a red ADVERTISEMENT tab
+    /// appears in the middle of the screen. Movement is NOT blocked - the player keeps control throughout.
+    /// </summary>
     private void DrawAdvertisementPopup(SpriteBatch b)
     {
-        if (PopupSecondsRemaining <= 0 || CurrentMessage is null || !CanShowPopupNow())
+        if (PopupSecondsRemaining <= 0 || CurrentMessage is null || IsAdFree() || !CanShowPopupNow())
             return;
 
-        const int pad = 28;
-        int width = Math.Min(380, Game1.uiViewport.Width - 24);
-        int textWidth = width - pad * 2;
+        int viewW = Game1.uiViewport.Width;
+        int viewH = Game1.uiViewport.Height;
 
-        string[] lines = Game1.parseText(CurrentMessage, Game1.smallFont, textWidth)
-            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
-            .Take(3)
-            .ToArray();
+        // Quick fade in, short fade out.
+        double total = Math.Max(0.5, PopupTotalSeconds);
+        double elapsed = total - PopupSecondsRemaining;
+        float fade = (float)Math.Clamp(Math.Min(elapsed / 0.25, PopupSecondsRemaining / 0.35), 0d, 1d);
 
-        string heading = CurrentAdvertiser ?? "ADVERTISEMENT";
-        SpriteFont headingFont = Game1.dialogueFont.MeasureString(heading).X <= textWidth ? Game1.dialogueFont : Game1.smallFont;
-        heading = SubscriptionMenu.TrimToWidth(heading, headingFont, textWidth);
+        // 1) Dim the whole game view so the ad really interrupts what the player is looking at.
+        b.Draw(Game1.fadeToBlackRect, new Rectangle(0, 0, viewW, viewH),
+            Color.Black * (Math.Clamp(Config.PopupDimAmount, 0f, 0.9f) * fade));
 
-        int headingHeight = headingFont.LineSpacing + 6;
-        int height = pad + headingHeight + lines.Length * Game1.smallFont.LineSpacing + pad;
+        // 2) Work out the box. Big fonts first; fall back to the small font if the screen is too short.
+        int boxWidth = Math.Min(920, viewW - 32);
+        int pad = viewW < 700 ? 24 : 40;
+        int textWidth = boxWidth - pad * 2;
+        int bannerHeight = Game1.smallFont.LineSpacing + 14;
+        int footerHeight = Game1.tinyFont.LineSpacing + 22;
 
-        bool left = Config.PopupCorner.Contains("Left", StringComparison.OrdinalIgnoreCase);
-        bool bottom = Config.PopupCorner.Contains("Bottom", StringComparison.OrdinalIgnoreCase);
+        SpriteFont headingFont = Game1.dialogueFont;
+        SpriteFont bodyFont = Game1.dialogueFont;
+        string heading = "";
+        string[] lines = Array.Empty<string>();
+        int boxHeight = 0;
 
-        int x = left ? 12 : Math.Max(12, HudButton.X - 8 - width);
-        int y = bottom ? Game1.uiViewport.Height - height - 110 : 16;
+        for (int attempt = 0; attempt < 2; attempt++)
+        {
+            heading = SubscriptionMenu.TrimToWidth(CurrentAdvertiser ?? "ADVERTISEMENT", headingFont, textWidth);
+            lines = Game1.parseText(CurrentMessage, bodyFont, textWidth)
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                .Take(4)
+                .ToArray();
 
+            boxHeight = pad + bannerHeight / 2 + headingFont.LineSpacing + 16
+                + lines.Length * bodyFont.LineSpacing + 16 + footerHeight + pad;
+
+            if (boxHeight + bannerHeight / 2 <= viewH - 16)
+                break;
+
+            headingFont = Game1.smallFont;
+            bodyFont = Game1.smallFont;
+        }
+
+        boxHeight = Math.Min(boxHeight, viewH - bannerHeight / 2 - 16);
+        int totalHeight = boxHeight + bannerHeight / 2;
+        int top = Math.Max(8, (viewH - totalHeight) / 2);
+        int boxX = (viewW - boxWidth) / 2;
+        int boxY = top + bannerHeight / 2;
+        float centerX = viewW / 2f;
+
+        // 3) Parchment box.
         StardewValley.Menus.IClickableMenu.drawTextureBox(
-            b, Game1.menuTexture, new Rectangle(0, 256, 60, 60), x, y, width, height, Color.White);
+            b, Game1.menuTexture, new Rectangle(0, 256, 60, 60), boxX, boxY, boxWidth, boxHeight, Color.White * fade);
 
-        Utility.drawTextWithShadow(b, heading, headingFont, new Vector2(x + pad, y + pad - 6), Color.SaddleBrown);
+        // 4) Red "ADVERTISEMENT" tab straddling the top edge, so it's unmistakable this is an ad.
+        const string bannerText = "ADVERTISEMENT";
+        Vector2 bannerTextSize = Game1.smallFont.MeasureString(bannerText);
+        int bannerWidth = (int)bannerTextSize.X + 56;
+        Rectangle banner = new((viewW - bannerWidth) / 2, top, bannerWidth, bannerHeight);
+        b.Draw(Game1.staminaRect, new Rectangle(banner.X - 4, banner.Y - 4, banner.Width + 8, banner.Height + 8), Color.Black * 0.6f * fade);
+        b.Draw(Game1.staminaRect, banner, new Color(176, 32, 32) * fade);
+        Utility.drawTextWithShadow(b, bannerText, Game1.smallFont,
+            new Vector2(banner.X + (banner.Width - bannerTextSize.X) / 2f, banner.Y + (banner.Height - bannerTextSize.Y) / 2f),
+            Color.White * fade);
 
-        float textY = y + pad - 6 + headingHeight;
+        // 5) Advertiser name, divider, message.
+        float y = boxY + pad + bannerHeight / 2;
+        DrawCentered(b, heading, headingFont, centerX, y, new Color(140, 30, 20) * fade);
+        y += headingFont.LineSpacing + 6;
+
+        b.Draw(Game1.staminaRect, new Rectangle(boxX + pad, (int)y, boxWidth - pad * 2, 4), new Color(120, 70, 40) * (0.5f * fade));
+        y += 10;
+
         foreach (string line in lines)
         {
-            Utility.drawTextWithShadow(b, line, Game1.smallFont, new Vector2(x + pad, textY), Game1.textColor);
-            textY += Game1.smallFont.LineSpacing;
+            DrawCentered(b, line.Trim(), bodyFont, centerX, y, Game1.textColor * fade);
+            y += bodyFont.LineSpacing;
         }
+
+        // 6) Footer: time-left bar, hint, countdown.
+        int footerY = boxY + boxHeight - pad - footerHeight + 6;
+        Rectangle barBack = new(boxX + pad, footerY, boxWidth - pad * 2, 10);
+        float fraction = (float)Math.Clamp(PopupSecondsRemaining / total, 0d, 1d);
+        b.Draw(Game1.staminaRect, barBack, new Color(90, 60, 40) * (0.35f * fade));
+        b.Draw(Game1.staminaRect, new Rectangle(barBack.X, barBack.Y, (int)(barBack.Width * fraction), barBack.Height), new Color(200, 70, 30) * fade);
+
+        string countdown = $"Closes in {(int)Math.Ceiling(PopupSecondsRemaining)}s";
+        float countdownWidth = Game1.tinyFont.MeasureString(countdown).X;
+        string hint = SubscriptionMenu.TrimToWidth(
+            "Tired of ads? Use the AD button for an ad-free pass.", Game1.tinyFont,
+            Math.Max(80, textWidth - (int)countdownWidth - 16));
+
+        float textY = footerY + 14;
+        Utility.drawTextWithShadow(b, hint, Game1.tinyFont, new Vector2(boxX + pad, textY), Game1.textColor * (0.85f * fade));
+        Utility.drawTextWithShadow(b, countdown, Game1.tinyFont,
+            new Vector2(boxX + boxWidth - pad - countdownWidth, textY), Game1.textColor * (0.85f * fade));
     }
 
     private static string FormatClock(double seconds)
@@ -455,8 +650,9 @@ public sealed class ModEntry : Mod
         double remaining = Math.Max(0, interval - elapsed);
 
         string line1 = $"AD DEBUG  {FormatClock(elapsed)} / {FormatClock(interval)}";
+        string pausedRemaining = GetRemainingText();
         string line2 = IsAdFree()
-            ? "Advertisements paused"
+            ? (pausedRemaining.Length > 0 ? $"Advertisements paused - {pausedRemaining}" : "Advertisements paused")
             : PopupPending
                 ? "Popup waiting for a free moment"
                 : $"Next popup in {FormatClock(remaining)}";
@@ -465,9 +661,7 @@ public sealed class ModEntry : Mod
         float width = Math.Max(Game1.smallFont.MeasureString(line1).X, Game1.tinyFont.MeasureString(line2).X) + pad * 2;
         int height = Game1.smallFont.LineSpacing + Game1.tinyFont.LineSpacing + pad * 2;
 
-        bool popupTopLeft = Config.PopupCorner.Equals("TopLeft", StringComparison.OrdinalIgnoreCase);
-        int y = popupTopLeft && PopupSecondsRemaining > 0 ? 160 : 12;
-        Rectangle panel = new(12, y, (int)Math.Ceiling(width), height);
+        Rectangle panel = new(12, 12, (int)Math.Ceiling(width), height);
 
         b.Draw(Game1.staminaRect, panel, new Color(20, 24, 32) * 0.85f);
         Utility.drawTextWithShadow(b, line1, Game1.smallFont, new Vector2(panel.X + pad, panel.Y + pad), Color.Gold);
