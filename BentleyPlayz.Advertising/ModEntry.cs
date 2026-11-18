@@ -38,7 +38,6 @@ public sealed class ModEntry : Mod
     // AD button press / drag state.
     private bool Pressing;
     private bool Dragging;
-    private bool PressUsesGameCoords;
     private Point PressStart;
     private Point GrabOffset;
     private Point? DragTopLeft;
@@ -510,7 +509,7 @@ public sealed class ModEntry : Mod
         }
         else
         {
-            x = maxX;
+            x = minX;
             y = maxY;
         }
 
@@ -534,7 +533,7 @@ public sealed class ModEntry : Mod
         Local.ButtonY = maxY > minY ? (float)(bounds.Y - minY) / (maxY - minY) : 0f;
     }
 
-    /// <summary>Puts the AD button back in its default bottom-right corner.</summary>
+    /// <summary>Puts the AD button back in its default bottom-left corner.</summary>
     private void ResetButtonPosition()
     {
         Local.ButtonX = null;
@@ -549,10 +548,8 @@ public sealed class ModEntry : Mod
         Game1.activeClickableMenu = new SubscriptionMenu(Ads.SubscriptionOffers, IsAdFree, GetRemainingText, GetNextAdText, PurchaseOffer, ResetButtonPosition);
     }
 
-    private Point GetPointer(bool useGameCoords) =>
-        useGameCoords
-            ? new Point(Game1.getMouseX(true), Game1.getMouseY(true))
-            : Helper.Input.GetCursorPosition().GetScaledScreenPixels().ToPoint();
+    // Use the same UI-scaled coordinate space for press, drag, and release on both desktop and Android touch.
+    private static Point GetPointer() => new(Game1.getMouseX(true), Game1.getMouseY(true));
 
     private void CancelButtonPress()
     {
@@ -600,18 +597,11 @@ public sealed class ModEntry : Mod
 
     private void BeginPress(ButtonPressedEventArgs e)
     {
-        // The button is drawn in UI space, so compare against UI-scaled coordinates. Game1.getMouseX/Y(true) is the
-        // same space vanilla menus use for their own clicks; accepting either covers any difference between them,
-        // and the one that hit is used for the rest of the press so movement stays consistent.
+        // Use the same UI-scaled coordinates used by the HUD for mouse and Android touch input.
         Rectangle hit = GetHudButtonHitArea();
-        Point scaled = e.Cursor.GetScaledScreenPixels().ToPoint();
-        Point game = new(Game1.getMouseX(true), Game1.getMouseY(true));
-        bool viaScaled = hit.Contains(scaled);
-        if (!viaScaled && !hit.Contains(game))
+        Point pointer = GetPointer();
+        if (!hit.Contains(pointer))
             return;
-
-        PressUsesGameCoords = !viaScaled;
-        Point pointer = viaScaled ? scaled : game;
         Rectangle bounds = GetHudButtonBounds();
 
         Pressing = true;
@@ -649,7 +639,7 @@ public sealed class ModEntry : Mod
         // Keep the game from treating the held press as a tool swing or walk command.
         Helper.Input.Suppress(SButton.MouseLeft);
 
-        Point pointer = GetPointer(PressUsesGameCoords);
+        Point pointer = GetPointer();
         if (!Dragging)
         {
             int slop = Math.Max(12, GetButtonSize() / 5);
@@ -688,7 +678,7 @@ public sealed class ModEntry : Mod
             return;
 
         // A tap: open the menu if the finger is still on the button.
-        if (GetHudButtonHitArea().Contains(GetPointer(PressUsesGameCoords)))
+        if (GetHudButtonHitArea().Contains(GetPointer()))
             OpenSubscriptionMenu();
     }
 
