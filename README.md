@@ -42,12 +42,15 @@ A drag never opens the menu or triggers anything underneath the button.
 Open the AD menu to see the time until the next ad, your gold, every offer's price and length, and the time left on an active subscription. Every purchase asks for confirmation and shows your gold before and after. If you cannot afford an offer, the menu says exactly how much more gold you need. Buying while already ad-free adds the new time on top.
 
 | Offer | Price | Ad-free for |
-| --- | --- | --- |
-| Quick Break | 1,000g | 1 hour of play time |
-| Extended Break | 2,800g | 3 hours of play time |
-| Long Break | 5,400g | 6 hours of play time |
-| Full Day | 20,000g | 24 hours of play time |
-| Monthly Pass | 35,000g | 28 in-game days |
+| --- | ---: | --- |
+| Quick Break | 5,000g | 1 hour of play time |
+| Extended Break | 12,000g | 3 hours of play time |
+| Long Break | 22,000g | 6 hours of play time |
+| 10-Hour Pass | 32,000g | 10 hours of play time |
+| 15-Hour Pass | 42,000g | 15 hours of play time |
+| 20-Hour Pass | 52,000g | 20 hours of play time |
+| Full Day | 60,000g | 24 hours of play time |
+| Monthly Pass | 250,000g | 28 in-game days |
 
 "Play time" is time you are actually playing; it does not run while the game is closed or in the background. Prices and offers can be changed in `advertisements.json`.
 
