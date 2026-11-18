@@ -86,6 +86,9 @@ public sealed class LocalState
     /// <summary>True once the first-launch welcome screen has been shown.</summary>
     public bool WelcomeShown { get; set; }
 
+    /// <summary>Version of the saved AD button placement; used for one-time position migrations.</summary>
+    public int ButtonPositionVersion { get; set; }
+
     /// <summary>Saved AD button position as a 0-1 fraction of the free horizontal range. Null means the default corner.</summary>
     public float? ButtonX { get; set; }
 
