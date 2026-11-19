@@ -24,6 +24,24 @@ public sealed class ModConfig
 
     /// <summary>Keyboard shortcut that opens the subscription menu (set to None to disable).</summary>
     public SButton OpenMenuKey { get; set; } = SButton.K;
+
+    /// <summary>Enables the built-in developer tools. Off by default for normal players.</summary>
+    public bool EnableDevMode { get; set; } = false;
+
+    /// <summary>Show the touch-friendly DEV button while developer mode is enabled.</summary>
+    public bool ShowDevButton { get; set; } = true;
+
+    /// <summary>Keyboard shortcut that opens the developer menu (set to None to disable).</summary>
+    public SButton DevOpenMenuKey { get; set; } = SButton.F8;
+
+    /// <summary>Width and height of the DEV button in UI pixels (40-96).</summary>
+    public int DevButtonSize { get; set; } = 64;
+
+    /// <summary>Distance in UI pixels from the left edge of the screen to the DEV button.</summary>
+    public int DevButtonOffsetX { get; set; } = 16;
+
+    /// <summary>Distance in UI pixels from the top edge of the screen to the DEV button.</summary>
+    public int DevButtonOffsetY { get; set; } = 16;
 }
 
 public sealed class AdvertisementData
