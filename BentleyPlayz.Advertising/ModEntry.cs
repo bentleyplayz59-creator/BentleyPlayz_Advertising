@@ -50,6 +50,7 @@ public sealed class ModEntry : Mod
     private long CapturedPopupGeneration;
     private string? LastAdvertisingLetterKey;
     private int ScreenshotSequence;
+    private bool ManualScreenshotPending;
 
     /// <summary>Play-time seconds counted toward the next ad. Only advances while the game is actively being played.</summary>
     private double AdElapsedSeconds;
@@ -397,8 +398,7 @@ public sealed class ModEntry : Mod
     }
 
     private void OnSaving(object? sender, SavingEventArgs e)
-    {
-        // Remember how far into the countdown we are, so quitting and loading this save resumes from here.
+    {        // Remember how far into the countdown we are, so quitting and loading this save resumes from here.
         Subscription.AdTimerSeconds = IsAdFree() ? 0 : AdElapsedSeconds;
         Helper.Data.WriteSaveData("subscription-state", Subscription);
     }
@@ -766,6 +766,20 @@ public sealed class ModEntry : Mod
 
     private void OnButtonPressed(object? sender, ButtonPressedEventArgs e)
     {
+        if (e.Button == SButton.MouseLeft && CanUseManualScreenshotButton())
+        {
+            Rectangle screenshotBounds = GetManualScreenshotButtonBounds();
+            Point scaledPointer = e.Cursor.GetScaledScreenPixels().ToPoint();
+            Point gamePointer = GetGamePointer();
+            if (screenshotBounds.Contains(scaledPointer) || screenshotBounds.Contains(gamePointer))
+            {
+                ManualScreenshotPending = true;
+                Helper.Input.Suppress(e.Button);
+                Game1.playSound("smallSelect");
+                return;
+            }
+        }
+
         if (!CanUseHudButton())
             return;
 
@@ -797,8 +811,7 @@ public sealed class ModEntry : Mod
         if (!hit.Contains(scaled) && !hit.Contains(game))
             return;
 
-        Helper.Input.Suppress(e.Button);
-        OpenSubscriptionMenu();
+        Helper.Input.Suppress(e.Button);        OpenSubscriptionMenu();
     }
 
     private void BeginPress(ButtonPressedEventArgs e)
@@ -981,12 +994,14 @@ public sealed class ModEntry : Mod
         // (so it stays visible and tappable during an ad).
         SafeDraw(() => DrawAdvertisementPopup(b), "advertisement popup");
         SafeDraw(() => DrawHudButton(b), "AD button");
+        if (!ManualScreenshotPending && !IsAdvertisingPopupVisible())
+            SafeDraw(() => DrawManualScreenshotButton(b), "manual screenshot button");
     }
 
     private bool LoggedDrawError;
 
     /*********
-    ** Automatic screenshots
+    ** Automatic and manual screenshots
     *********/
     private void InstallScreenshotPatch()
     {
@@ -997,21 +1012,33 @@ public sealed class ModEntry : Mod
             MethodInfo? postfix = AccessTools.Method(typeof(ModEntry), nameof(OnGameDrawn));
             if (drawMethod is null || postfix is null)
             {
-                Monitor.Log("Automatic screenshots couldn't be enabled: the game draw method wasn't found.", LogLevel.Warn);
+                Monitor.Log("Screenshot capture couldn't be enabled: the game draw method wasn't found.", LogLevel.Warn);
                 return;
             }
 
             ScreenshotHarmony.Patch(drawMethod, postfix: new HarmonyMethod(postfix));
-            Monitor.Log("Automatic popup and advertising-letter screenshots are enabled.", LogLevel.Info);
+            Monitor.Log("Automatic advertising screenshots and the manual screenshot button are enabled.", LogLevel.Info);
         }
         catch (Exception ex)
         {
-            Monitor.Log($"Automatic screenshots couldn't be enabled: {ex}", LogLevel.Warn);
+            Monitor.Log($"Screenshot capture couldn't be enabled: {ex}", LogLevel.Warn);
         }
     }
 
+    private static bool IsAdvertisingPopupVisible()
+    {
+        ModEntry? mod = ActiveInstance;
+        return mod is not null
+            && mod.PopupSecondsRemaining > 0
+            && mod.CurrentMessage is not null
+            && CanShowPopupNow()
+            && Game1.displayHUD
+            && (!mod.IsAdFree() || mod.ForcePopupActive);
+    }
+
     /// <summary>
-    /// Runs after Game1.Draw has completed, so the backbuffer contains the full frame, including the HUD and active menu.
+    /// Runs after Stardew has drawn the frame. Capture the actual backbuffer once, instead of trying to
+    /// redraw a menu into a separate target (which can omit its background or render only the dim layer).
     /// </summary>
     private static void OnGameDrawn(Game1 __instance)
     {
@@ -1019,27 +1046,21 @@ public sealed class ModEntry : Mod
         if (mod is null || !ReferenceEquals(__instance, Game1.game1) || !Context.IsWorldReady || !mod.Config.Enabled)
             return;
 
-        bool popupVisible = mod.PopupSecondsRemaining > 0
-            && mod.CurrentMessage is not null
-            && CanShowPopupNow()
-            && Game1.displayHUD
-            && (!mod.IsAdFree() || mod.ForcePopupActive);
+        if (mod.ManualScreenshotPending && mod.SaveBackbufferScreenshot("manual"))
+            mod.ManualScreenshotPending = false;
 
-        if (popupVisible && mod.PopupGeneration != mod.CapturedPopupGeneration)
+        if (IsAdvertisingPopupVisible() && mod.PopupGeneration != mod.CapturedPopupGeneration)
         {
-            // Mark before capture so a failure cannot cause a disk write attempt every frame.
-            mod.CapturedPopupGeneration = mod.PopupGeneration;
-            mod.SaveRenderedMenuScreenshot("popup", batch => mod.DrawAdvertisementPopup(batch));
+            if (mod.SaveBackbufferScreenshot("popup"))
+                mod.CapturedPopupGeneration = mod.PopupGeneration;
         }
 
         string? advertisingLetterKey = GetOpenAdvertisingLetterKey();
         if (advertisingLetterKey is not null)
         {
-            if (!string.Equals(advertisingLetterKey, mod.LastAdvertisingLetterKey, StringComparison.Ordinal))
-            {
+            if (!string.Equals(advertisingLetterKey, mod.LastAdvertisingLetterKey, StringComparison.Ordinal)
+                && mod.SaveBackbufferScreenshot("letter"))
                 mod.LastAdvertisingLetterKey = advertisingLetterKey;
-                mod.SaveRenderedMenuScreenshot("letter", batch => ((StardewValley.Menus.LetterViewerMenu)Game1.activeClickableMenu!).draw(batch));
-            }
         }
         else
         {
@@ -1067,51 +1088,23 @@ public sealed class ModEntry : Mod
         return null;
     }
 
-    /// <summary>
-    /// Re-renders only the selected Advertising UI into a transparent off-screen target.
-    /// This avoids reading Android's dimmed/incomplete backbuffer and captures the same draw routine
-    /// used by the live popup or letter menu.
-    /// </summary>
-    private void SaveRenderedMenuScreenshot(string kind, Action<SpriteBatch> drawMenu)
+    /// <summary>Saves the complete rendered game frame to a uniquely named PNG.</summary>
+    private bool SaveBackbufferScreenshot(string kind)
     {
-        RenderTarget2D? target = null;
-        SpriteBatch? batch = null;
-        GraphicsDevice? graphicsDevice = null;
-        RenderTargetBinding[]? previousTargets = null;
-        bool targetChanged = false;
-        bool batchBegun = false;
-
+        Texture2D? texture = null;
         try
         {
-            graphicsDevice = Game1.graphics.GraphicsDevice;
+            GraphicsDevice graphicsDevice = Game1.graphics.GraphicsDevice;
             PresentationParameters parameters = graphicsDevice.PresentationParameters;
             int width = parameters.BackBufferWidth;
             int height = parameters.BackBufferHeight;
             if (width <= 0 || height <= 0)
                 throw new InvalidOperationException("The graphics backbuffer has an invalid size.");
 
-            previousTargets = graphicsDevice.GetRenderTargets();
-            target = new RenderTarget2D(
-                graphicsDevice, width, height, false,
-                SurfaceFormat.Color, DepthFormat.None);
-            graphicsDevice.SetRenderTarget(target);
-            targetChanged = true;
-            graphicsDevice.Clear(Color.Transparent);
-
-            batch = new SpriteBatch(graphicsDevice);
-            batch.Begin(
-                SpriteSortMode.Deferred,
-                BlendState.AlphaBlend,
-                SamplerState.LinearClamp,
-                DepthStencilState.None,
-                RasterizerState.CullCounterClockwise);
-            batchBegun = true;
-
-            drawMenu(batch);
-
-            batch.End();
-            batchBegun = false;
-            graphicsDevice.SetRenderTargets(previousTargets);
+            Color[] pixels = new Color[checked(width * height)];
+            graphicsDevice.GetBackBufferData(pixels);
+            texture = new Texture2D(graphicsDevice, width, height, false, SurfaceFormat.Color);
+            texture.SetData(pixels);
 
             string folder = Path.Combine(Helper.DirectoryPath, "Screenshots");
             Directory.CreateDirectory(folder);
@@ -1120,33 +1113,57 @@ public sealed class ModEntry : Mod
             string fileName = $"{kind}_{timestamp}_{++ScreenshotSequence:D4}.png";
             string path = Path.Combine(folder, fileName);
             using FileStream stream = new(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
-            target.SaveAsPng(stream, width, height);
+            texture.SaveAsPng(stream, width, height);
 
-            Monitor.Log($"Saved rendered {kind} menu screenshot: {path}", LogLevel.Info);
+            Monitor.Log($"Saved full-frame {kind} screenshot: {path}", LogLevel.Info);
+            return true;
         }
         catch (Exception ex)
         {
-            Monitor.Log($"Couldn't render/save the {kind} screenshot: {ex}", LogLevel.Warn);
+            Monitor.Log($"Couldn't save the {kind} screenshot: {ex}", LogLevel.Warn);
+            return false;
         }
         finally
         {
-            if (batchBegun)
-            {
-                try { batch?.End(); }
-                catch { }
-            }
-
-            if (targetChanged && graphicsDevice is not null && previousTargets is not null)
-            {
-                try { graphicsDevice.SetRenderTargets(previousTargets); }
-                catch (Exception ex) { Monitor.Log($"Couldn't restore the game's render target after a screenshot: {ex.Message}", LogLevel.Warn); }
-            }
-
-            batch?.Dispose();
-            target?.Dispose();
+            texture?.Dispose();
         }
     }
 
+    private bool CanUseManualScreenshotButton() =>
+        Context.IsWorldReady && Config.Enabled && Game1.displayHUD
+        && Game1.activeClickableMenu == null && !Game1.eventUp;
+
+    private Rectangle GetManualScreenshotButtonBounds()
+    {
+        const int width = 190;
+        const int height = 48;
+        return new Rectangle((Game1.uiViewport.Width - width) / 2, 12, width, height);
+    }
+
+    private void DrawManualScreenshotButton(SpriteBatch b)
+    {
+        if (!CanUseManualScreenshotButton())
+            return;
+
+        Rectangle bounds = GetManualScreenshotButtonBounds();
+        Point pointer = GetGamePointer();
+        bool hovered = bounds.Contains(pointer);
+        Color tint = hovered ? new Color(85, 125, 175) : new Color(55, 85, 125);
+
+        b.Draw(Game1.staminaRect,
+            new Rectangle(bounds.X + 3, bounds.Y + 4, bounds.Width, bounds.Height),
+            Color.Black * 0.35f);
+        StardewValley.Menus.IClickableMenu.drawTextureBox(
+            b, Game1.menuTexture, new Rectangle(0, 256, 60, 60),
+            bounds.X, bounds.Y, bounds.Width, bounds.Height, tint, 2f, false);
+
+        const string label = "TAKE SCREENSHOT";
+        Vector2 labelSize = Game1.smallFont.MeasureString(label);
+        Utility.drawTextWithShadow(
+            b, label, Game1.smallFont,
+            new Vector2(bounds.Center.X - labelSize.X / 2f, bounds.Center.Y - labelSize.Y / 2f),
+            Color.White);
+    }
 
     private void SafeDraw(Action draw, string what)
     {
@@ -1197,8 +1214,7 @@ public sealed class ModEntry : Mod
 
     private static void DrawCentered(SpriteBatch b, string text, SpriteFont font, float centerX, float y, Color color)
     {
-        Vector2 size = font.MeasureString(text);
-        Utility.drawTextWithShadow(b, text, font, new Vector2(centerX - size.X / 2f, y), color);
+        Vector2 size = font.MeasureString(text);        Utility.drawTextWithShadow(b, text, font, new Vector2(centerX - size.X / 2f, y), color);
     }
 
     /// <summary>
