@@ -57,6 +57,28 @@ public sealed class ModEntry : Mod
     public override void Entry(IModHelper helper)
     {
         Config = helper.ReadConfig<ModConfig>();
+
+        // Migrate 1.0.4 configs: ShowDevButton used to default to true and was gated by EnableDevMode.
+        // Hide it on upgrade so existing installations get the new hidden-by-default behavior.
+        string configPath = Path.Combine(Helper.DirectoryPath, "config.json");
+        if (File.Exists(configPath))
+        {
+            try
+            {
+                using JsonDocument configDocument = JsonDocument.Parse(File.ReadAllText(configPath));
+                if (configDocument.RootElement.TryGetProperty("EnableDevMode", out _))
+                {
+                    Config.ShowDevButton = false;
+                    Helper.WriteConfig(Config);
+                    Monitor.Log("Migrated developer button setting: the DEV button is now hidden by default. F8 remains available.", LogLevel.Info);
+                }
+            }
+            catch (Exception ex)
+            {
+                Monitor.Log($"Couldn't check the previous developer settings for migration: {ex.Message}", LogLevel.Warn);
+            }
+        }
+
         LoadLocalState();
         LoadAdvertisements();
 
