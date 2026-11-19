@@ -35,6 +35,7 @@ public sealed class ModEntry : Mod
     private double PopupSecondsRemaining;
     private double PopupTotalSeconds;
     private bool PopupPending;
+    private bool ForcePopupActive;
     private SubscriptionState Subscription = new();
     private int WelcomeCountdown;
     private bool WelcomeShownThisSave;
@@ -72,6 +73,101 @@ public sealed class ModEntry : Mod
 
         Monitor.Log($"Bentley's Advertising {ModManifest.Version} loaded.", LogLevel.Info);
     }
+
+    // Public API consumed by Bentley's Advertising Dev Tools.
+    public override object? GetApi() => new BentleysAdvertisingApi(this);
+
+    public IReadOnlyList<string> GetAdvertiserIds() =>
+        Ads.Advertisers.Where(p => !string.IsNullOrWhiteSpace(p.Id)).Select(p => p.Id).ToList();
+
+    public string GetAdvertiserName(string advertiserId) =>
+        FindAdvertiser(advertiserId)?.DisplayName ?? advertiserId;
+
+    public int GetPopupCount(string advertiserId) =>
+        FindAdvertiser(advertiserId)?.PopupVariations.Count ?? 0;
+
+    public int GetLetterCount(string advertiserId) =>
+        FindAdvertiser(advertiserId)?.MailVariations.Count ?? 0;
+
+    public string? ForcePopup(string advertiserId)
+    {
+        if (!Context.IsWorldReady)
+            return "Load a save before forcing an advertisement.";
+
+        Advertiser? advertiser = FindAdvertiser(advertiserId);
+        if (advertiser is null)
+            return $"Advertiser '{advertiserId}' was not found.";
+
+        if (advertiser.PopupVariations.Count == 0)
+            return $"{advertiser.DisplayName} has no popup variations.";
+
+        CurrentAdvertiser = advertiser.DisplayName;
+        CurrentMessage = advertiser.PopupVariations[Game1.random.Next(advertiser.PopupVariations.Count)];
+        LastAdvertiserId = advertiser.Id;
+        PopupTotalSeconds = Math.Clamp(Config.PopupDurationSeconds, 3, 30);
+        PopupSecondsRemaining = PopupTotalSeconds;
+        PopupPending = false;
+        ForcePopupActive = true;
+        if (Config.PlayPopupSound)
+            Game1.playSound("dwop");
+
+        Monitor.Log($"Dev Tools forced a popup from {advertiser.DisplayName}.", LogLevel.Trace);
+        return null;
+    }
+
+    public string? ForceLetter(string advertiserId, bool deliverNow)
+    {
+        if (!Context.IsWorldReady)
+            return "Load a save before forcing an advertiser letter.";
+
+        Advertiser? advertiser = FindAdvertiser(advertiserId);
+        if (advertiser is null)
+            return $"Advertiser '{advertiserId}' was not found.";
+
+        if (advertiser.MailVariations.Count == 0)
+            return $"{advertiser.DisplayName} has no letter variations.";
+
+        List<int> available = Enumerable.Range(0, advertiser.MailVariations.Count)
+            .Where(index =>
+            {
+                string mailId = GetMailId(advertiser.Id, index);
+                return !Game1.player.mailReceived.Contains(mailId)
+                    && !Game1.player.mailbox.Contains(mailId)
+                    && !Game1.player.mailForTomorrow.Contains(mailId);
+            })
+            .ToList();
+
+        if (available.Count == 0)
+            return $"All letters from {advertiser.DisplayName} have already been received or queued.";
+
+        int variation = available[Game1.random.Next(available.Count)];
+        string selectedMailId = GetMailId(advertiser.Id, variation);
+        if (deliverNow)
+            Game1.player.mailbox.Add(selectedMailId);
+        else
+            Game1.player.mailForTomorrow.Add(selectedMailId);
+
+        Monitor.Log($"Dev Tools queued a letter from {advertiser.DisplayName} ({(deliverNow ? "mailbox now" : "tomorrow")}).", LogLevel.Trace);
+        return null;
+    }
+
+    public void ClearAdFree()
+    {
+        Subscription.RealTimeRemainingSeconds = null;
+        Subscription.InGameDayExpiry = null;
+        Monitor.Log("Dev Tools cleared the active ad-free subscription.", LogLevel.Trace);
+    }
+
+    public string GetStatusText()
+    {
+        if (!Context.IsWorldReady)
+            return "Load a save to see advertising status.";
+
+        return IsAdFree() ? $"Ad-free: {GetRemainingText()}" : GetNextAdText();
+    }
+
+    private Advertiser? FindAdvertiser(string advertiserId) =>
+        Ads.Advertisers.FirstOrDefault(p => string.Equals(p.Id, advertiserId, StringComparison.OrdinalIgnoreCase));
 
     /*********
     ** Data loading
@@ -295,6 +391,7 @@ public sealed class ModEntry : Mod
     private void ResetPopupState()
     {
         PopupPending = false;
+        ForcePopupActive = false;
         PopupSecondsRemaining = 0;
         PopupTotalSeconds = 0;
         CurrentAdvertiser = null;
@@ -344,9 +441,24 @@ public sealed class ModEntry : Mod
         {
             ResetAdClock();
             PopupPending = false;
-            PopupSecondsRemaining = 0;
-            CurrentAdvertiser = null;
-            CurrentMessage = null;
+
+            if (ForcePopupActive)
+            {
+                if (PopupSecondsRemaining > 0 && CanShowPopupNow() && delta > 0)
+                    PopupSecondsRemaining = Math.Max(0, PopupSecondsRemaining - delta);
+
+                if (PopupSecondsRemaining <= 0)
+                {
+                    ForcePopupActive = false;
+                    CurrentAdvertiser = null;
+                    CurrentMessage = null;
+                }
+            }
+            else
+            {
+                PopupSecondsRemaining = 0;
+            }
+
             return;
         }
 
@@ -358,6 +470,7 @@ public sealed class ModEntry : Mod
             PopupSecondsRemaining = Math.Max(0, PopupSecondsRemaining - delta);
             if (PopupSecondsRemaining <= 0)
             {
+                ForcePopupActive = false;
                 CurrentAdvertiser = null;
                 CurrentMessage = null;
             }
@@ -911,7 +1024,7 @@ public sealed class ModEntry : Mod
     /// </summary>
     private void DrawAdvertisementPopup(SpriteBatch b)
     {
-        if (PopupSecondsRemaining <= 0 || CurrentMessage is null || IsAdFree() || !CanShowPopupNow())
+        if (PopupSecondsRemaining <= 0 || CurrentMessage is null || (IsAdFree() && !ForcePopupActive) || !CanShowPopupNow())
             return;
 
         int viewW = Game1.uiViewport.Width;
