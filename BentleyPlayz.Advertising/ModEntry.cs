@@ -1029,7 +1029,7 @@ public sealed class ModEntry : Mod
         {
             // Mark before capture so a failure cannot cause a disk write attempt every frame.
             mod.CapturedPopupGeneration = mod.PopupGeneration;
-            mod.SaveAutomaticScreenshot("popup");
+            mod.SaveRenderedMenuScreenshot("popup", batch => mod.DrawAdvertisementPopup(batch));
         }
 
         string? advertisingLetterKey = GetOpenAdvertisingLetterKey();
@@ -1038,7 +1038,7 @@ public sealed class ModEntry : Mod
             if (!string.Equals(advertisingLetterKey, mod.LastAdvertisingLetterKey, StringComparison.Ordinal))
             {
                 mod.LastAdvertisingLetterKey = advertisingLetterKey;
-                mod.SaveAutomaticScreenshot("letter");
+                mod.SaveRenderedMenuScreenshot("letter", batch => ((StardewValley.Menus.LetterViewerMenu)Game1.activeClickableMenu!).draw(batch));
             }
         }
         else
@@ -1067,22 +1067,51 @@ public sealed class ModEntry : Mod
         return null;
     }
 
-    private void SaveAutomaticScreenshot(string kind)
+    /// <summary>
+    /// Re-renders only the selected Advertising UI into a transparent off-screen target.
+    /// This avoids reading Android's dimmed/incomplete backbuffer and captures the same draw routine
+    /// used by the live popup or letter menu.
+    /// </summary>
+    private void SaveRenderedMenuScreenshot(string kind, Action<SpriteBatch> drawMenu)
     {
-        Texture2D? screenshot = null;
+        RenderTarget2D? target = null;
+        SpriteBatch? batch = null;
+        GraphicsDevice? graphicsDevice = null;
+        RenderTargetBinding[]? previousTargets = null;
+        bool targetChanged = false;
+        bool batchBegun = false;
+
         try
         {
-            GraphicsDevice graphicsDevice = Game1.graphics.GraphicsDevice;
-            int width = graphicsDevice.PresentationParameters.BackBufferWidth;
-            int height = graphicsDevice.PresentationParameters.BackBufferHeight;
+            graphicsDevice = Game1.graphics.GraphicsDevice;
+            PresentationParameters parameters = graphicsDevice.PresentationParameters;
+            int width = parameters.BackBufferWidth;
+            int height = parameters.BackBufferHeight;
             if (width <= 0 || height <= 0)
-                return;
+                throw new InvalidOperationException("The graphics backbuffer has an invalid size.");
 
-            Color[] pixels = new Color[checked(width * height)];
-            graphicsDevice.GetBackBufferData(pixels);
+            previousTargets = graphicsDevice.GetRenderTargets();
+            target = new RenderTarget2D(
+                graphicsDevice, width, height, false,
+                SurfaceFormat.Color, DepthFormat.None);
+            graphicsDevice.SetRenderTarget(target);
+            targetChanged = true;
+            graphicsDevice.Clear(Color.Transparent);
 
-            screenshot = new Texture2D(graphicsDevice, width, height, false, SurfaceFormat.Color);
-            screenshot.SetData(pixels);
+            batch = new SpriteBatch(graphicsDevice);
+            batch.Begin(
+                SpriteSortMode.Deferred,
+                BlendState.AlphaBlend,
+                SamplerState.LinearClamp,
+                DepthStencilState.None,
+                RasterizerState.CullCounterClockwise);
+            batchBegun = true;
+
+            drawMenu(batch);
+
+            batch.End();
+            batchBegun = false;
+            graphicsDevice.SetRenderTargets(previousTargets);
 
             string folder = Path.Combine(Helper.DirectoryPath, "Screenshots");
             Directory.CreateDirectory(folder);
@@ -1091,17 +1120,30 @@ public sealed class ModEntry : Mod
             string fileName = $"{kind}_{timestamp}_{++ScreenshotSequence:D4}.png";
             string path = Path.Combine(folder, fileName);
             using FileStream stream = new(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
-            screenshot.SaveAsPng(stream, width, height);
+            target.SaveAsPng(stream, width, height);
 
-            Monitor.Log($"Saved automatic {kind} screenshot: {path}", LogLevel.Info);
+            Monitor.Log($"Saved rendered {kind} menu screenshot: {path}", LogLevel.Info);
         }
         catch (Exception ex)
         {
-            Monitor.Log($"Couldn't save the automatic {kind} screenshot: {ex.Message}", LogLevel.Warn);
+            Monitor.Log($"Couldn't render/save the {kind} screenshot: {ex}", LogLevel.Warn);
         }
         finally
         {
-            screenshot?.Dispose();
+            if (batchBegun)
+            {
+                try { batch?.End(); }
+                catch { }
+            }
+
+            if (targetChanged && graphicsDevice is not null && previousTargets is not null)
+            {
+                try { graphicsDevice.SetRenderTargets(previousTargets); }
+                catch (Exception ex) { Monitor.Log($"Couldn't restore the game's render target after a screenshot: {ex.Message}", LogLevel.Warn); }
+            }
+
+            batch?.Dispose();
+            target?.Dispose();
         }
     }
 
