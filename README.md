@@ -12,7 +12,7 @@ The 1.0.5 build contains the advertising gameplay, mailbox letters, subscription
 
 1. Install the game and [SMAPI](https://smapi.io) (on Android, use a SMAPI launcher for Android). The mod needs SMAPI 4.3.0 or newer and **Content Patcher**. Content Patcher is a required dependency; SMAPI will skip loading this mod if it is missing.
 2. Generic Mod Config Menu (GMCM) is optional, but supported. If installed, Bentley's Advertising appears in GMCM and its settings can be changed there from the title screen or in-game options.
-2. Download the release ZIP (`BentleyPlayz.Advertising 1.0.4.zip`) and extract it.
+2. Download the release ZIP (`BentleyPlayz.Advertising 1.0.5.zip`) and extract it.
 3. Copy the `BentleyPlayz.Advertising` folder into your SMAPI `Mods` folder (your launcher shows where that is on Android).
 4. Start the game through SMAPI. A welcome screen appears the first time you load a save.
 
