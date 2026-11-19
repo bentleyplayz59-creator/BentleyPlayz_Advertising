@@ -1021,7 +1021,7 @@ public sealed class ModEntry : Mod
 
         bool popupVisible = mod.PopupSecondsRemaining > 0
             && mod.CurrentMessage is not null
-            && mod.CanShowPopupNow()
+            && CanShowPopupNow()
             && Game1.displayHUD
             && (!mod.IsAdFree() || mod.ForcePopupActive);
 
