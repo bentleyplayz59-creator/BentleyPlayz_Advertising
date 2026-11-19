@@ -1,5 +1,7 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Reflection;
+using HarmonyLib;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using StardewModdingAPI;
@@ -41,6 +43,14 @@ public sealed class ModEntry : Mod
     private bool WelcomeShownThisSave;
     private int AdTimerResumeTicks;
 
+    // Screenshot capture state. The Harmony postfix runs after Game1.Draw has flushed the complete frame.
+    private static ModEntry? ActiveInstance;
+    private Harmony? ScreenshotHarmony;
+    private long PopupGeneration;
+    private long CapturedPopupGeneration;
+    private string? LastAdvertisingLetterKey;
+    private int ScreenshotSequence;
+
     /// <summary>Play-time seconds counted toward the next ad. Only advances while the game is actively being played.</summary>
     private double AdElapsedSeconds;
 
@@ -66,6 +76,10 @@ public sealed class ModEntry : Mod
         helper.Events.GameLoop.UpdateTicked += OnUpdateTicked;
         helper.Events.GameLoop.DayStarted += OnDayStarted;
         helper.Events.Display.RenderedHud += OnRenderedHud;
+
+        // Capture from the completed game frame, not from RenderedHud (which runs before the final batch is flushed).
+        ActiveInstance = this;
+        InstallScreenshotPatch();
         helper.Events.Input.ButtonPressed += OnButtonPressed;
         helper.Events.Input.ButtonReleased += OnButtonReleased;
         helper.Events.Content.AssetRequested += OnAssetRequested;
@@ -107,6 +121,7 @@ public sealed class ModEntry : Mod
         PopupSecondsRemaining = PopupTotalSeconds;
         PopupPending = false;
         ForcePopupActive = true;
+        PopupGeneration++;
         if (Config.PlayPopupSound)
             Game1.playSound("dwop");
 
@@ -521,6 +536,7 @@ public sealed class ModEntry : Mod
         CurrentAdvertiser = advertiser.DisplayName;
         CurrentMessage = advertiser.PopupVariations[Game1.random.Next(advertiser.PopupVariations.Count)];
         ForcePopupActive = false;
+        PopupGeneration++;
         LastAdvertiserId = advertiser.Id;
         PopupTotalSeconds = Math.Clamp(Config.PopupDurationSeconds, 3, 30);
         PopupSecondsRemaining = PopupTotalSeconds;
@@ -968,6 +984,127 @@ public sealed class ModEntry : Mod
     }
 
     private bool LoggedDrawError;
+
+    /*********
+    ** Automatic screenshots
+    *********/
+    private void InstallScreenshotPatch()
+    {
+        try
+        {
+            ScreenshotHarmony = new Harmony(ModManifest.UniqueID + ".Screenshots");
+            MethodInfo? drawMethod = AccessTools.Method(typeof(Game1), "Draw", new[] { typeof(GameTime) });
+            MethodInfo? postfix = AccessTools.Method(typeof(ModEntry), nameof(OnGameDrawn));
+            if (drawMethod is null || postfix is null)
+            {
+                Monitor.Log("Automatic screenshots couldn't be enabled: the game draw method wasn't found.", LogLevel.Warn);
+                return;
+            }
+
+            ScreenshotHarmony.Patch(drawMethod, postfix: new HarmonyMethod(postfix));
+            Monitor.Log("Automatic popup and advertising-letter screenshots are enabled.", LogLevel.Info);
+        }
+        catch (Exception ex)
+        {
+            Monitor.Log($"Automatic screenshots couldn't be enabled: {ex}", LogLevel.Warn);
+        }
+    }
+
+    /// <summary>
+    /// Runs after Game1.Draw has completed, so the backbuffer contains the full frame, including the HUD and active menu.
+    /// </summary>
+    private static void OnGameDrawn(Game1 __instance)
+    {
+        ModEntry? mod = ActiveInstance;
+        if (mod is null || !ReferenceEquals(__instance, Game1.game1) || !Context.IsWorldReady || !mod.Config.Enabled)
+            return;
+
+        bool popupVisible = mod.PopupSecondsRemaining > 0
+            && mod.CurrentMessage is not null
+            && mod.CanShowPopupNow()
+            && Game1.displayHUD
+            && (!mod.IsAdFree() || mod.ForcePopupActive);
+
+        if (popupVisible && mod.PopupGeneration != mod.CapturedPopupGeneration)
+        {
+            // Mark before capture so a failure cannot cause a disk write attempt every frame.
+            mod.CapturedPopupGeneration = mod.PopupGeneration;
+            mod.SaveAutomaticScreenshot("popup");
+        }
+
+        string? advertisingLetterKey = GetOpenAdvertisingLetterKey();
+        if (advertisingLetterKey is not null)
+        {
+            if (!string.Equals(advertisingLetterKey, mod.LastAdvertisingLetterKey, StringComparison.Ordinal))
+            {
+                mod.LastAdvertisingLetterKey = advertisingLetterKey;
+                mod.SaveAutomaticScreenshot("letter");
+            }
+        }
+        else
+        {
+            mod.LastAdvertisingLetterKey = null;
+        }
+    }
+
+    /// <summary>
+    /// LetterViewerMenu retains the mail ID in mailTitle. The sender signature is also checked as a fallback,
+    /// so unrelated vanilla or other-mod letters aren't captured.
+    /// </summary>
+    private static string? GetOpenAdvertisingLetterKey()
+    {
+        if (Game1.activeClickableMenu is not StardewValley.Menus.LetterViewerMenu menu)
+            return null;
+
+        if (!string.IsNullOrWhiteSpace(menu.mailTitle)
+            && menu.mailTitle.StartsWith(MailPrefix, StringComparison.Ordinal))
+            return menu.mailTitle;
+
+        const string signature = "Sent from Bentley's Advertising.";
+        if (menu.mailMessage.Any(page => page.Contains(signature, StringComparison.Ordinal)))
+            return "signature:" + string.Join("|", menu.mailMessage);
+
+        return null;
+    }
+
+    private void SaveAutomaticScreenshot(string kind)
+    {
+        Texture2D? screenshot = null;
+        try
+        {
+            GraphicsDevice graphicsDevice = Game1.graphics.GraphicsDevice;
+            int width = graphicsDevice.PresentationParameters.BackBufferWidth;
+            int height = graphicsDevice.PresentationParameters.BackBufferHeight;
+            if (width <= 0 || height <= 0)
+                return;
+
+            Color[] pixels = new Color[checked(width * height)];
+            graphicsDevice.GetBackBufferData(pixels);
+
+            screenshot = new Texture2D(graphicsDevice, width, height, false, SurfaceFormat.Color);
+            screenshot.SetData(pixels);
+
+            string folder = Path.Combine(Helper.DirectoryPath, "Screenshots");
+            Directory.CreateDirectory(folder);
+
+            string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff");
+            string fileName = $"{kind}_{timestamp}_{++ScreenshotSequence:D4}.png";
+            string path = Path.Combine(folder, fileName);
+            using FileStream stream = new(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+            screenshot.SaveAsPng(stream, width, height);
+
+            Monitor.Log($"Saved automatic {kind} screenshot: {path}", LogLevel.Info);
+        }
+        catch (Exception ex)
+        {
+            Monitor.Log($"Couldn't save the automatic {kind} screenshot: {ex.Message}", LogLevel.Warn);
+        }
+        finally
+        {
+            screenshot?.Dispose();
+        }
+    }
+
 
     private void SafeDraw(Action draw, string what)
     {
