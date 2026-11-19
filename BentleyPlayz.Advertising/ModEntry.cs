@@ -161,6 +161,12 @@ public sealed class ModEntry : Mod
         body = Regex.Replace(body, @"\\+n", "\n");
         body = Regex.Replace(body, @"[ \t]+\n", "\n");
         body = Regex.Replace(body, @"\n{3,}", "\n\n").Trim();
+
+        // Keep the sender attribution as the final line of every generated in-game letter.
+        body = body.Length > 0
+            ? body + "\nSent from Bentley's Advertising."
+            : "Sent from Bentley's Advertising.";
+
         body = body.Replace("^", "").Replace("\n", "^");
 
         string title = (mail.Title ?? "").Replace("^", " ").Replace("[#]", "").Trim();
