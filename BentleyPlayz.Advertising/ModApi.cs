@@ -1,8 +1,8 @@
 namespace BentleyPlayz.Advertising;
 
 /// <summary>
-/// Public API used by companion mods such as Bentley's Advertising Dev Tools.
-/// Keep this interface in sync with the copy in the Dev Tools project.
+/// Public API used by the integrated developer menu and optional external integrations.
+/// The built-in developer menu uses this interface directly.
 /// </summary>
 public interface IBentleysAdvertisingApi
 {
