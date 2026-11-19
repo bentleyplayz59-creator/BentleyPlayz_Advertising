@@ -8,5 +8,10 @@
   "PopupDimAmount": 0.6,
   "PlayPopupSound": true,
   "HudButtonSize": 72,
-  "OpenMenuKey": "K"
+  "OpenMenuKey": "K",
+  "ShowDevButton": false,
+  "DevOpenMenuKey": "F8",
+  "DevButtonSize": 64,
+  "DevButtonOffsetX": 16,
+  "DevButtonOffsetY": 16
 }

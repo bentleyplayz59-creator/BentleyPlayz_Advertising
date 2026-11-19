@@ -4,6 +4,38 @@
   "PopupVariations": [],
   "SubscriptionOffers": [
     {
+      "Id": "FiveMinutePass",
+      "DisplayName": "5-Minute Pass",
+      "Category": "ShortDuration",
+      "Price": 250,
+      "DurationMinutes": 5,
+      "Description": "5 minutes of ad-free play time."
+    },
+    {
+      "Id": "TenMinutePass",
+      "DisplayName": "10-Minute Pass",
+      "Category": "ShortDuration",
+      "Price": 500,
+      "DurationMinutes": 10,
+      "Description": "10 minutes of ad-free play time."
+    },
+    {
+      "Id": "FifteenMinutePass",
+      "DisplayName": "15-Minute Pass",
+      "Category": "ShortDuration",
+      "Price": 750,
+      "DurationMinutes": 15,
+      "Description": "15 minutes of ad-free play time."
+    },
+    {
+      "Id": "TwentyMinutePass",
+      "DisplayName": "20-Minute Pass",
+      "Category": "ShortDuration",
+      "Price": 1000,
+      "DurationMinutes": 20,
+      "Description": "20 minutes of ad-free play time."
+    },
+    {
       "Id": "QuickBreak",
       "Price": 500,
       "DurationMinutes": 60

@@ -24,6 +24,21 @@ public sealed class ModConfig
 
     /// <summary>Keyboard shortcut that opens the subscription menu (set to None to disable).</summary>
     public SButton OpenMenuKey { get; set; } = SButton.K;
+
+    /// <summary>Show the touch-friendly DEV button. The developer menu remains available through its keyboard shortcut.</summary>
+    public bool ShowDevButton { get; set; } = false;
+
+    /// <summary>Keyboard shortcut that opens the developer menu (set to None to disable).</summary>
+    public SButton DevOpenMenuKey { get; set; } = SButton.F8;
+
+    /// <summary>Width and height of the DEV button in UI pixels (40-96).</summary>
+    public int DevButtonSize { get; set; } = 64;
+
+    /// <summary>Distance in UI pixels from the left edge of the screen to the DEV button.</summary>
+    public int DevButtonOffsetX { get; set; } = 16;
+
+    /// <summary>Distance in UI pixels from the top edge of the screen to the DEV button.</summary>
+    public int DevButtonOffsetY { get; set; } = 16;
 }
 
 public sealed class AdvertisementData
@@ -51,6 +66,8 @@ public sealed class SubscriptionOffer
 {
     public string Id { get; set; } = "";
     public string DisplayName { get; set; } = "";
+    /// <summary>Groups short-duration minute passes separately from standard subscriptions.</summary>
+    public string Category { get; set; } = "Standard";
     public int Price { get; set; }
 
     /// <summary>Ad-free time in minutes of actual play time (the countdown only runs while the game is being played).</summary>
@@ -83,6 +100,9 @@ public sealed class LocalState
 {
     /// <summary>True once the first-launch welcome screen has been shown.</summary>
     public bool WelcomeShown { get; set; }
+
+    /// <summary>Version of the saved AD button placement; used for one-time position migrations.</summary>
+    public int ButtonPositionVersion { get; set; }
 
     /// <summary>Saved AD button position as a 0-1 fraction of the free horizontal range. Null means the default corner.</summary>
     public float? ButtonX { get; set; }

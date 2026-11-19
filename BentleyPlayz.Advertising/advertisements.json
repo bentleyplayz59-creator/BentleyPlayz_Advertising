@@ -267,9 +267,45 @@
   ],
   "SubscriptionOffers": [
     {
+      "Id": "FiveMinutePass",
+      "DisplayName": "5-Minute Pass",
+      "Category": "ShortDuration",
+      "Price": 250,
+      "DurationMinutes": 5,
+      "DurationInGameDays": 0,
+      "Description": "Ad-free for 5 minutes of play time."
+    },
+    {
+      "Id": "TenMinutePass",
+      "DisplayName": "10-Minute Pass",
+      "Category": "ShortDuration",
+      "Price": 500,
+      "DurationMinutes": 10,
+      "DurationInGameDays": 0,
+      "Description": "Ad-free for 10 minutes of play time."
+    },
+    {
+      "Id": "FifteenMinutePass",
+      "DisplayName": "15-Minute Pass",
+      "Category": "ShortDuration",
+      "Price": 750,
+      "DurationMinutes": 15,
+      "DurationInGameDays": 0,
+      "Description": "Ad-free for 15 minutes of play time."
+    },
+    {
+      "Id": "TwentyMinutePass",
+      "DisplayName": "20-Minute Pass",
+      "Category": "ShortDuration",
+      "Price": 1000,
+      "DurationMinutes": 20,
+      "DurationInGameDays": 0,
+      "Description": "Ad-free for 20 minutes of play time."
+    },
+    {
       "Id": "QuickBreak",
       "DisplayName": "Quick Break",
-      "Price": 1000,
+      "Price": 5000,
       "DurationMinutes": 60,
       "DurationInGameDays": 0,
       "Description": "Ad-free for 1 hour of play time."
@@ -277,7 +313,7 @@
     {
       "Id": "ExtendedBreak",
       "DisplayName": "Extended Break",
-      "Price": 2800,
+      "Price": 12000,
       "DurationMinutes": 180,
       "DurationInGameDays": 0,
       "Description": "Ad-free for 3 hours of play time."
@@ -285,7 +321,7 @@
     {
       "Id": "LongBreak",
       "DisplayName": "Long Break",
-      "Price": 5400,
+      "Price": 22000,
       "DurationMinutes": 360,
       "DurationInGameDays": 0,
       "Description": "Ad-free for 6 hours of play time."
@@ -293,7 +329,7 @@
     {
       "Id": "FullDay",
       "DisplayName": "Full Day",
-      "Price": 20000,
+      "Price": 60000,
       "DurationMinutes": 1440,
       "DurationInGameDays": 0,
       "Description": "Ad-free for 24 hours of play time."
@@ -301,7 +337,7 @@
     {
       "Id": "MonthlyPass",
       "DisplayName": "Monthly Pass",
-      "Price": 35000,
+      "Price": 250000,
       "DurationMinutes": 0,
       "DurationInGameDays": 28,
       "Description": "Ad-free for 28 in-game days."

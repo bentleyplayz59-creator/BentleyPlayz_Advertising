@@ -19,6 +19,12 @@ public sealed class ModEntry : Mod
     /// <summary>Ticks to wait after a save loads before the welcome screen may appear (lets the fade-in finish).</summary>
     private const int WelcomeDelayTicks = 120;
 
+    /// <summary>Active gameplay ticks to wait after loading before the saved ad countdown resumes.</summary>
+    private const int AdTimerResumeDelayTicks = 120;
+
+    /// <summary>Consecutive ticks the pointer must read as released; prevents Android touch-state flicker ending a drag.</summary>
+    private static readonly int ReleaseGraceTicks = OperatingSystem.IsAndroid() ? 30 : 2;
+
     private ModConfig Config = new();
     private LocalState Local = new();
     private AdvertisementData Ads = new();
@@ -29,38 +35,318 @@ public sealed class ModEntry : Mod
     private double PopupSecondsRemaining;
     private double PopupTotalSeconds;
     private bool PopupPending;
+    private bool ForcePopupActive;
     private SubscriptionState Subscription = new();
     private int WelcomeCountdown;
+    private bool WelcomeShownThisSave;
+    private int AdTimerResumeTicks;
 
     /// <summary>Play-time seconds counted toward the next ad. Only advances while the game is actively being played.</summary>
     private double AdElapsedSeconds;
 
-    // AD button press / drag state.
+    // AD button press / drag state. Track both pointer coordinate sources because Android touch can update them differently.
     private bool Pressing;
     private bool Dragging;
-    private bool PressUsesGameCoords;
-    private Point PressStart;
-    private Point GrabOffset;
+    private Point PressStartScaled;
+    private Point PressStartGame;
+    private Point PressButtonTopLeft;
+    private Point LastPointer;
+    private int NotHeldTicks;
     private Point? DragTopLeft;
 
     public override void Entry(IModHelper helper)
     {
         Config = helper.ReadConfig<ModConfig>();
+
+        // Migrate 1.0.4 configs: ShowDevButton used to default to true and was gated by EnableDevMode.
+        // Hide it on upgrade so existing installations get the new hidden-by-default behavior.
+        string configPath = Path.Combine(Helper.DirectoryPath, "config.json");
+        if (File.Exists(configPath))
+        {
+            try
+            {
+                using JsonDocument configDocument = JsonDocument.Parse(File.ReadAllText(configPath));
+                if (configDocument.RootElement.TryGetProperty("EnableDevMode", out _))
+                {
+                    Config.ShowDevButton = false;
+                    Helper.WriteConfig(Config);
+                    Monitor.Log("Migrated developer button setting: the DEV button is now hidden by default. F8 remains available.", LogLevel.Info);
+                }
+            }
+            catch (Exception ex)
+            {
+                Monitor.Log($"Couldn't check the previous developer settings for migration: {ex.Message}", LogLevel.Warn);
+            }
+        }
+
         LoadLocalState();
         LoadAdvertisements();
 
+        helper.Events.GameLoop.GameLaunched += OnGameLaunched;
         helper.Events.GameLoop.SaveLoaded += OnSaveLoaded;
         helper.Events.GameLoop.ReturnedToTitle += OnReturnedToTitle;
         helper.Events.GameLoop.Saving += OnSaving;
         helper.Events.GameLoop.UpdateTicked += OnUpdateTicked;
         helper.Events.GameLoop.DayStarted += OnDayStarted;
         helper.Events.Display.RenderedHud += OnRenderedHud;
+        helper.Events.Display.RenderedHud += OnRenderedDevHud;
+
         helper.Events.Input.ButtonPressed += OnButtonPressed;
+        helper.Events.Input.ButtonPressed += OnDevButtonPressed;
         helper.Events.Input.ButtonReleased += OnButtonReleased;
         helper.Events.Content.AssetRequested += OnAssetRequested;
 
         Monitor.Log($"Bentley's Advertising {ModManifest.Version} loaded.", LogLevel.Info);
     }
+
+
+    /*********
+    ** Generic Mod Config Menu
+    *********/
+    private void OnGameLaunched(object? sender, GameLaunchedEventArgs e)
+    {
+        IGenericModConfigMenuApi? api = Helper.ModRegistry.GetApi<IGenericModConfigMenuApi>("spacechase0.GenericModConfigMenu");
+        if (api is null)
+        {
+            Monitor.Log("Generic Mod Config Menu isn't installed; settings can still be edited through config.json.", LogLevel.Trace);
+            return;
+        }
+
+        api.Register(ModManifest, ResetConfig, SaveConfig, titleScreenOnly: false);
+
+        api.AddSectionTitle(ModManifest, () => "Advertising");
+        api.AddBoolOption(ModManifest, () => Config.Enabled, value => Config.Enabled = value,
+            () => "Enable advertising", () => "Turns the advertising system on or off.");
+        api.AddNumberOption(ModManifest, () => Config.AdvertisementIntervalMinutes, value => Config.AdvertisementIntervalMinutes = value,
+            () => "Advertisement interval (minutes)", () => "Play-time minutes between advertisements.", min: 1, max: 120);
+        api.AddBoolOption(ModManifest, () => Config.EnablePopups, value => Config.EnablePopups = value,
+            () => "Enable advertisement popups");
+        api.AddBoolOption(ModManifest, () => Config.EnableMail, value => Config.EnableMail = value,
+            () => "Enable advertising letters");
+        api.AddBoolOption(ModManifest, () => Config.EnableSubscriptions, value => Config.EnableSubscriptions = value,
+            () => "Enable ad-free subscriptions");
+
+        api.AddSectionTitle(ModManifest, () => "Popup appearance");
+        api.AddNumberOption(ModManifest, () => Config.PopupDurationSeconds, value => Config.PopupDurationSeconds = value,
+            () => "Popup duration (seconds)", () => "How long each popup stays visible.", min: 3, max: 30);
+        api.AddNumberOption(ModManifest, () => Config.PopupDimAmount, value => Config.PopupDimAmount = value,
+            () => "Background dim amount", () => "0 is no dimming; 0.9 is the darkest setting.", min: 0f, max: 0.9f, interval: 0.05f);
+        api.AddBoolOption(ModManifest, () => Config.PlayPopupSound, value => Config.PlayPopupSound = value,
+            () => "Play popup sound");
+
+        api.AddSectionTitle(ModManifest, () => "AD button");
+        api.AddNumberOption(ModManifest, () => Config.HudButtonSize, value => Config.HudButtonSize = value,
+            () => "AD button size", () => "Button width and height in UI pixels.", min: 48, max: 128);
+        api.AddKeybind(ModManifest, () => Config.OpenMenuKey, value => Config.OpenMenuKey = value,
+            () => "Open AD menu key", () => "Set to None to disable the keyboard shortcut.");
+
+        api.AddSectionTitle(ModManifest, () => "Developer tools");
+        api.AddBoolOption(ModManifest, () => Config.ShowDevButton, value => Config.ShowDevButton = value,
+            () => "Show DEV button", () => "Shows the touch-friendly DEV button. The F8 shortcut works even when this button is hidden.");
+        api.AddKeybind(ModManifest, () => Config.DevOpenMenuKey, value => Config.DevOpenMenuKey = value,
+            () => "Open developer menu key", () => "Set to None to disable the keyboard shortcut.");
+        api.AddNumberOption(ModManifest, () => Config.DevButtonSize, value => Config.DevButtonSize = value,
+            () => "DEV button size", () => "Button width and height in UI pixels.", min: 40, max: 96);
+        api.AddNumberOption(ModManifest, () => Config.DevButtonOffsetX, value => Config.DevButtonOffsetX = value,
+            () => "DEV button horizontal offset", () => "Distance from the left edge in UI pixels.", min: 0, max: 500);
+        api.AddNumberOption(ModManifest, () => Config.DevButtonOffsetY, value => Config.DevButtonOffsetY = value,
+            () => "DEV button vertical offset", () => "Distance from the top edge in UI pixels.", min: 0, max: 500);
+
+        Monitor.Log("Registered advertising settings with Generic Mod Config Menu.", LogLevel.Info);
+    }
+
+    private void ResetConfig()
+    {
+        Config = new ModConfig();
+    }
+
+    private void SaveConfig()
+    {
+        Helper.WriteConfig(Config);
+    }
+
+
+    /*********
+    ** Integrated developer tools (disabled by default)
+    *********/
+    private bool CanUseDevButton() =>
+        Config.ShowDevButton && Context.IsWorldReady
+        && Game1.activeClickableMenu == null && !Game1.eventUp && Game1.displayHUD;
+
+    private Rectangle GetDevButtonBounds()
+    {
+        int size = Math.Clamp(Config.DevButtonSize, 40, 96);
+        int x = Math.Clamp(Config.DevButtonOffsetX, 0, Math.Max(0, Game1.uiViewport.Width - size));
+        int y = Math.Clamp(Config.DevButtonOffsetY, 0, Math.Max(0, Game1.uiViewport.Height - size));
+        return new Rectangle(x, y, size, size);
+    }
+
+    private void OpenDevMenu()
+    {
+        if (!Context.IsWorldReady)
+            return;
+
+        try
+        {
+            Game1.playSound("bigSelect");
+            Game1.activeClickableMenu = new DevMenu(new BentleysAdvertisingApi(this));
+        }
+        catch (Exception ex)
+        {
+            Monitor.Log($"Couldn't open the developer menu: {ex}", LogLevel.Error);
+            Game1.addHUDMessage(new HUDMessage("Advertising Dev Tools couldn't open. See the SMAPI log.", HUDMessage.error_type));
+        }
+    }
+
+    private void OnDevButtonPressed(object? sender, ButtonPressedEventArgs e)
+    {
+        if (!Context.IsWorldReady || Game1.activeClickableMenu != null || Game1.eventUp)
+            return;
+
+        if (Config.DevOpenMenuKey != SButton.None && e.Button == Config.DevOpenMenuKey)
+        {
+            if (Game1.chatBox is not null && Game1.chatBox.isActive())
+                return;
+
+            Helper.Input.Suppress(e.Button);
+            OpenDevMenu();
+            return;
+        }
+
+        if (!CanUseDevButton() || (e.Button != SButton.MouseLeft && !e.Button.IsUseToolButton()))
+            return;
+
+        Rectangle hit = GetDevButtonBounds();
+        hit.Inflate(10, 10);
+        Point scaled = e.Cursor.GetScaledScreenPixels().ToPoint();
+        Point game = new(Game1.getMouseX(true), Game1.getMouseY(true));
+        if (!hit.Contains(scaled) && !hit.Contains(game))
+            return;
+
+        Helper.Input.Suppress(e.Button);
+        OpenDevMenu();
+    }
+
+    private void OnRenderedDevHud(object? sender, RenderedHudEventArgs e)
+    {
+        if (!CanUseDevButton())
+            return;
+
+        SpriteBatch b = e.SpriteBatch;
+        Rectangle area = GetDevButtonBounds();
+        b.Draw(Game1.staminaRect, new Rectangle(area.X + 4, area.Y + 6, area.Width, area.Height), Color.Black * 0.35f);
+        StardewValley.Menus.IClickableMenu.drawTextureBox(
+            b, Game1.mouseCursors, new Rectangle(432, 439, 9, 9),
+            area.X, area.Y, area.Width, area.Height, Color.MediumPurple, 4f, false);
+
+        const string label = "DEV";
+        SpriteFont font = Game1.dialogueFont;
+        Vector2 size = font.MeasureString(label);
+        if (size.X > area.Width - 14)
+        {
+            font = Game1.smallFont;
+            size = font.MeasureString(label);
+        }
+
+        Utility.drawTextWithShadow(b, label, font,
+            new Vector2(area.X + (area.Width - size.X) / 2f, area.Y + (area.Height - size.Y) / 2f),
+            Color.White);
+    }
+
+    // Public API retained for optional external integrations.
+    public override object? GetApi() => new BentleysAdvertisingApi(this);
+
+    public IReadOnlyList<string> GetAdvertiserIds() =>
+        Ads.Advertisers.Where(p => !string.IsNullOrWhiteSpace(p.Id)).Select(p => p.Id).ToList();
+
+    public string GetAdvertiserName(string advertiserId) =>
+        FindAdvertiser(advertiserId)?.DisplayName ?? advertiserId;
+
+    public int GetPopupCount(string advertiserId) =>
+        FindAdvertiser(advertiserId)?.PopupVariations.Count ?? 0;
+
+    public int GetLetterCount(string advertiserId) =>
+        FindAdvertiser(advertiserId)?.MailVariations.Count ?? 0;
+
+    public string? ForcePopup(string advertiserId)
+    {
+        if (!Context.IsWorldReady)
+            return "Load a save before forcing an advertisement.";
+
+        Advertiser? advertiser = FindAdvertiser(advertiserId);
+        if (advertiser is null)
+            return $"Advertiser '{advertiserId}' was not found.";
+
+        if (advertiser.PopupVariations.Count == 0)
+            return $"{advertiser.DisplayName} has no popup variations.";
+
+        CurrentAdvertiser = advertiser.DisplayName;
+        CurrentMessage = advertiser.PopupVariations[Game1.random.Next(advertiser.PopupVariations.Count)];
+        LastAdvertiserId = advertiser.Id;
+        PopupTotalSeconds = Math.Clamp(Config.PopupDurationSeconds, 3, 30);
+        PopupSecondsRemaining = PopupTotalSeconds;
+        PopupPending = false;
+        ForcePopupActive = true;
+        if (Config.PlayPopupSound)
+            Game1.playSound("dwop");
+
+        Monitor.Log($"Dev Tools forced a popup from {advertiser.DisplayName}.", LogLevel.Trace);
+        return null;
+    }
+
+    public string? ForceLetter(string advertiserId, bool deliverNow)
+    {
+        if (!Context.IsWorldReady)
+            return "Load a save before forcing an advertiser letter.";
+
+        Advertiser? advertiser = FindAdvertiser(advertiserId);
+        if (advertiser is null)
+            return $"Advertiser '{advertiserId}' was not found.";
+
+        if (advertiser.MailVariations.Count == 0)
+            return $"{advertiser.DisplayName} has no letter variations.";
+
+        List<int> available = Enumerable.Range(0, advertiser.MailVariations.Count)
+            .Where(index =>
+            {
+                string mailId = GetMailId(advertiser.Id, index);
+                return !Game1.player.mailReceived.Contains(mailId)
+                    && !Game1.player.mailbox.Contains(mailId)
+                    && !Game1.player.mailForTomorrow.Contains(mailId);
+            })
+            .ToList();
+
+        if (available.Count == 0)
+            return $"All letters from {advertiser.DisplayName} have already been received or queued.";
+
+        int variation = available[Game1.random.Next(available.Count)];
+        string selectedMailId = GetMailId(advertiser.Id, variation);
+        if (deliverNow)
+            Game1.player.mailbox.Add(selectedMailId);
+        else
+            Game1.player.mailForTomorrow.Add(selectedMailId);
+
+        Monitor.Log($"Dev Tools queued a letter from {advertiser.DisplayName} ({(deliverNow ? "mailbox now" : "tomorrow")}).", LogLevel.Trace);
+        return null;
+    }
+
+    public void ClearAdFree()
+    {
+        Subscription.RealTimeRemainingSeconds = null;
+        Subscription.InGameDayExpiry = null;
+        Monitor.Log("Dev Tools cleared the active ad-free subscription.", LogLevel.Trace);
+    }
+
+    public string GetStatusText()
+    {
+        if (!Context.IsWorldReady)
+            return "Load a save to see advertising status.";
+
+        return IsAdFree() ? $"Ad-free: {GetRemainingText()}" : GetNextAdText();
+    }
+
+    private Advertiser? FindAdvertiser(string advertiserId) =>
+        Ads.Advertisers.FirstOrDefault(p => string.Equals(p.Id, advertiserId, StringComparison.OrdinalIgnoreCase));
 
     /*********
     ** Data loading
@@ -75,6 +361,20 @@ public sealed class ModEntry : Mod
         {
             Local = new LocalState();
             Monitor.Log($"Couldn't read {LocalStateFile}; using defaults. {ex.Message}", LogLevel.Warn);
+        }
+
+        // Undo the previous forced bottom-left migration. Its marker and exact coordinates identify the
+        // position written by that migration, so restore the original bottom-right default once.
+        if (Local.ButtonPositionVersion == 2 && Local.ButtonX == 0f && Local.ButtonY == 1f)
+        {
+            Local.ButtonX = null;
+            Local.ButtonY = null;
+        }
+
+        if (Local.ButtonPositionVersion < 3)
+        {
+            Local.ButtonPositionVersion = 3;
+            SaveLocalState();
         }
     }
 
@@ -151,6 +451,14 @@ public sealed class ModEntry : Mod
         body = Regex.Replace(body, @"\\+n", "\n");
         body = Regex.Replace(body, @"[ \t]+\n", "\n");
         body = Regex.Replace(body, @"\n{3,}", "\n\n").Trim();
+
+        // Keep the sender attribution as the final line of every generated in-game letter.
+        // Reserve several lines above the attribution so it sits near the bottom of the vanilla letter panel.
+        const string signatureGap = "\n\n\n\n\n";
+        body = body.Length > 0
+            ? body + signatureGap + "Sent from Bentley's Advertising."
+            : "Sent from Bentley's Advertising.";
+
         body = body.Replace("^", "").Replace("\n", "^");
 
         string title = (mail.Title ?? "").Replace("^", " ").Replace("[#]", "").Trim();
@@ -180,17 +488,28 @@ public sealed class ModEntry : Mod
     private void ResetAdClock() => AdElapsedSeconds = 0;
 
     /// <summary>
-    /// True while the game is actually being played. Timers do not advance on the title screen, while the window is
-    /// in the background, or when the app is paused (on Android the game also stops updating entirely then).
+    /// True while the player is in an active save and the game window is focused.
+    /// Menus are deliberately allowed: the advertisement and subscription timers must keep
+    /// advancing while either the developer menu or subscription shop is open.
+    /// Dialogue, events, sleeping, and day/fade transitions remain excluded.
     /// </summary>
     private static bool IsActivelyPlaying() =>
-        Context.IsWorldReady && Game1.game1.IsActive;
+        Context.IsWorldReady
+        && Game1.game1.IsActive
+        && !Game1.dialogueUp
+        && !Game1.eventUp
+        && !Game1.newDay
+        && !Game1.fadeToBlack
+        && Game1.fadeToBlackAlpha <= 0f
+        && Game1.player is not null
+        && !Game1.player.isInBed.Value;
 
-    /// <summary>Seconds of game time that passed this tick, capped so a hitch can never burn a big chunk of a timer.</summary>
-    private static double GetTickSeconds() =>
-        Game1.currentGameTime is null
-            ? 1d / 60d
-            : Math.Min(0.25d, Game1.currentGameTime.ElapsedGameTime.TotalSeconds);
+    /// <summary>Elapsed seconds for this update, capped to prevent lag spikes from advancing the timer.</summary>
+    private static double GetTickSeconds()
+    {
+        double elapsed = Game1.currentGameTime?.ElapsedGameTime.TotalSeconds ?? 0d;
+        return double.IsFinite(elapsed) ? Math.Clamp(elapsed, 0d, 0.25d) : 0d;
+    }
 
     /*********
     ** Save / lifecycle
@@ -199,15 +518,17 @@ public sealed class ModEntry : Mod
     {
         // Everything here is stored inside the save file, so each save has its own subscription and ad timer.
         Subscription = Helper.Data.ReadSaveData<SubscriptionState>("subscription-state") ?? new SubscriptionState();
+        WelcomeShownThisSave = string.Equals(Helper.Data.ReadSaveData<string>("welcome-shown"), "shown", StringComparison.Ordinal);
         MigrateLegacySubscription();
         ResetPopupState();
         CancelButtonPress();
 
-        // Pick the countdown up where the save left off. The cap gives a short grace period so an ad that was
-        // almost due when you saved doesn't pop up the instant the save finishes loading.
+        // Restore the saved progress without resetting it. The first two seconds of eligible gameplay after
+        // loading are a resume grace period, so loading itself can never trigger an ad.
         double interval = GetIntervalSeconds();
         double saved = Subscription.AdTimerSeconds ?? 0;
-        AdElapsedSeconds = Math.Clamp(saved, 0, Math.Max(0, interval - 20));
+        AdElapsedSeconds = Math.Clamp(saved, 0, interval);
+        AdTimerResumeTicks = AdTimerResumeDelayTicks;
 
         WelcomeCountdown = WelcomeDelayTicks;
     }
@@ -237,11 +558,11 @@ public sealed class ModEntry : Mod
         ResetPopupState();
         CancelButtonPress();
         AdElapsedSeconds = 0;
+        AdTimerResumeTicks = 0;
     }
 
     private void OnSaving(object? sender, SavingEventArgs e)
-    {
-        // Remember how far into the countdown we are, so quitting and loading this save resumes from here.
+    {        // Remember how far into the countdown we are, so quitting and loading this save resumes from here.
         Subscription.AdTimerSeconds = IsAdFree() ? 0 : AdElapsedSeconds;
         Helper.Data.WriteSaveData("subscription-state", Subscription);
     }
@@ -249,6 +570,7 @@ public sealed class ModEntry : Mod
     private void ResetPopupState()
     {
         PopupPending = false;
+        ForcePopupActive = false;
         PopupSecondsRemaining = 0;
         PopupTotalSeconds = 0;
         CurrentAdvertiser = null;
@@ -277,6 +599,12 @@ public sealed class ModEntry : Mod
 
         bool playing = IsActivelyPlaying();
         double delta = playing ? GetTickSeconds() : 0d;
+        double adDelta = delta;
+        if (playing && AdTimerResumeTicks > 0)
+        {
+            AdTimerResumeTicks--;
+            adDelta = 0d;
+        }
 
         // Subscription time left only counts down while the game is actually being played.
         if (delta > 0 && Subscription.RealTimeRemainingSeconds is double remaining)
@@ -290,10 +618,26 @@ public sealed class ModEntry : Mod
 
         if (IsAdFree())
         {
-            // Start a fresh interval when the subscription ends, and clear anything on screen.
             ResetAdClock();
             PopupPending = false;
-            PopupSecondsRemaining = 0;
+
+            if (ForcePopupActive)
+            {
+                if (PopupSecondsRemaining > 0 && CanShowPopupNow() && delta > 0)
+                    PopupSecondsRemaining = Math.Max(0, PopupSecondsRemaining - delta);
+
+                if (PopupSecondsRemaining <= 0)
+                {
+                    ForcePopupActive = false;
+                    CurrentAdvertiser = null;
+                    CurrentMessage = null;
+                }
+            }
+            else
+            {
+                PopupSecondsRemaining = 0;
+            }
+
             return;
         }
 
@@ -301,9 +645,17 @@ public sealed class ModEntry : Mod
 
         // Only count the popup's lifetime down while it can actually be seen.
         if (PopupSecondsRemaining > 0 && canShow && delta > 0)
+        {
             PopupSecondsRemaining = Math.Max(0, PopupSecondsRemaining - delta);
+            if (PopupSecondsRemaining <= 0)
+            {
+                ForcePopupActive = false;
+                CurrentAdvertiser = null;
+                CurrentMessage = null;
+            }
+        }
 
-        AdElapsedSeconds += delta;
+        AdElapsedSeconds += adDelta;
         if (AdElapsedSeconds >= GetIntervalSeconds())
         {
             ResetAdClock();
@@ -369,7 +721,7 @@ public sealed class ModEntry : Mod
     *********/
     private void ShowWelcomeIfNeeded()
     {
-        if (Local.WelcomeShown)
+        if (WelcomeShownThisSave)
             return;
 
         if (WelcomeCountdown > 0)
@@ -382,9 +734,9 @@ public sealed class ModEntry : Mod
         if (!Context.CanPlayerMove || Game1.activeClickableMenu != null)
             return;
 
-        // Record it as shown before opening, so it can never appear twice.
-        Local.WelcomeShown = true;
-        SaveLocalState();
+        // Record it in this save before opening, so it appears once per save rather than once per installation.
+        WelcomeShownThisSave = true;
+        Helper.Data.WriteSaveData("welcome-shown", "shown");
 
         string? keyName = Config.OpenMenuKey == SButton.None ? null : Config.OpenMenuKey.ToString();
         Game1.activeClickableMenu = new WelcomeMenu(keyName);
@@ -489,7 +841,7 @@ public sealed class ModEntry : Mod
 
     /// <summary>
     /// One rectangle is used for both drawing and clicking, so the two can't drift apart.
-    /// Default is the bottom-right corner; a saved or in-progress drag position overrides it. Always clamped on screen.
+    /// Default is the original bottom-right corner; a saved or in-progress drag position overrides it. The button remains draggable and is clamped on screen.
     /// </summary>
     private Rectangle GetHudButtonBounds()
     {
@@ -534,7 +886,7 @@ public sealed class ModEntry : Mod
         Local.ButtonY = maxY > minY ? (float)(bounds.Y - minY) / (maxY - minY) : 0f;
     }
 
-    /// <summary>Puts the AD button back in its default bottom-right corner.</summary>
+    /// <summary>Puts the AD button back in its original default bottom-right corner.</summary>
     private void ResetButtonPosition()
     {
         Local.ButtonX = null;
@@ -549,15 +901,27 @@ public sealed class ModEntry : Mod
         Game1.activeClickableMenu = new SubscriptionMenu(Ads.SubscriptionOffers, IsAdFree, GetRemainingText, GetNextAdText, PurchaseOffer, ResetButtonPosition);
     }
 
-    private Point GetPointer(bool useGameCoords) =>
-        useGameCoords
-            ? new Point(Game1.getMouseX(true), Game1.getMouseY(true))
-            : Helper.Input.GetCursorPosition().GetScaledScreenPixels().ToPoint();
+    /// <summary>The pointer in SMAPI's UI-scaled screen pixels.</summary>
+    private Point GetScaledPointer() =>
+        Helper.Input.GetCursorPosition().GetScaledScreenPixels().ToPoint();
+
+    /// <summary>The pointer in the same space vanilla menus use for their own clicks.</summary>
+    private static Point GetGamePointer() =>
+        new(Game1.getMouseX(true), Game1.getMouseY(true));
+
+    /// <summary>
+    /// Whether a finger/mouse button is still down. On Android a touch is reported as a left mouse press by the game
+    /// but SMAPI's own input state can read as released while the finger is held, so both are checked.
+    /// </summary>
+    private bool IsPointerHeld() =>
+        Helper.Input.IsDown(SButton.MouseLeft)
+        || Game1.input.GetMouseState().LeftButton == Microsoft.Xna.Framework.Input.ButtonState.Pressed;
 
     private void CancelButtonPress()
     {
         Pressing = false;
         Dragging = false;
+        NotHeldTicks = 0;
         DragTopLeft = null;
     }
 
@@ -589,42 +953,59 @@ public sealed class ModEntry : Mod
             return;
 
         Point scaled = e.Cursor.GetScaledScreenPixels().ToPoint();
-        Point game = new(Game1.getMouseX(true), Game1.getMouseY(true));
+        Point game = GetGamePointer();
         Rectangle hit = GetHudButtonHitArea();
         if (!hit.Contains(scaled) && !hit.Contains(game))
             return;
 
-        Helper.Input.Suppress(e.Button);
-        OpenSubscriptionMenu();
+        Helper.Input.Suppress(e.Button);        OpenSubscriptionMenu();
     }
 
     private void BeginPress(ButtonPressedEventArgs e)
     {
         // The button is drawn in UI space, so compare against UI-scaled coordinates. Game1.getMouseX/Y(true) is the
-        // same space vanilla menus use for their own clicks; accepting either covers any difference between them,
-        // and the one that hit is used for the rest of the press so movement stays consistent.
+        // same space vanilla menus use for their own clicks; accepting either covers any difference between them.
         Rectangle hit = GetHudButtonHitArea();
         Point scaled = e.Cursor.GetScaledScreenPixels().ToPoint();
-        Point game = new(Game1.getMouseX(true), Game1.getMouseY(true));
-        bool viaScaled = hit.Contains(scaled);
-        if (!viaScaled && !hit.Contains(game))
+        Point game = GetGamePointer();
+        if (!hit.Contains(scaled) && !hit.Contains(game))
             return;
 
-        PressUsesGameCoords = !viaScaled;
-        Point pointer = viaScaled ? scaled : game;
         Rectangle bounds = GetHudButtonBounds();
-
         Pressing = true;
         Dragging = false;
-        PressStart = pointer;
-        GrabOffset = new Point(pointer.X - bounds.X, pointer.Y - bounds.Y);
+        NotHeldTicks = 0;
+        PressStartScaled = scaled;
+        PressStartGame = game;
+        PressButtonTopLeft = new Point(bounds.X, bounds.Y);
+        LastPointer = hit.Contains(scaled) ? scaled : game;
         Helper.Input.Suppress(e.Button);
     }
 
     private void OnButtonReleased(object? sender, ButtonReleasedEventArgs e)
     {
-        if (e.Button == SButton.MouseLeft)
-            FinishPress();
+        if (e.Button == SButton.MouseLeft && Pressing)
+        {
+            // Android can emit a short-lived synthetic mouse release during a finger gesture.
+            // Defer tap completion so the following touch-position updates can still become a drag.
+            NotHeldTicks = Math.Max(NotHeldTicks, 1);
+        }
+    }
+
+    /// <summary>
+    /// How far the pointer has moved since the press began. Both coordinate sources are tracked and whichever has
+    /// moved further wins, so dragging works whether the platform keeps updating SMAPI's cursor or only the game's.
+    /// </summary>
+    private Point GetPointerDelta()
+    {
+        Point scaled = GetScaledPointer();
+        Point game = GetGamePointer();
+        Point dScaled = new(scaled.X - PressStartScaled.X, scaled.Y - PressStartScaled.Y);
+        Point dGame = new(game.X - PressStartGame.X, game.Y - PressStartGame.Y);
+
+        long lenScaled = (long)dScaled.X * dScaled.X + (long)dScaled.Y * dScaled.Y;
+        long lenGame = (long)dGame.X * dGame.X + (long)dGame.Y * dGame.Y;
+        return lenScaled >= lenGame ? dScaled : dGame;
     }
 
     /// <summary>Follows the finger/cursor while a press is held, turning it into a drag once it moves far enough.</summary>
@@ -639,29 +1020,34 @@ public sealed class ModEntry : Mod
             return;
         }
 
-        // Fallback in case the release event was missed.
-        if (!Helper.Input.IsDown(SButton.MouseLeft))
-        {
-            FinishPress();
-            return;
-        }
-
         // Keep the game from treating the held press as a tool swing or walk command.
         Helper.Input.Suppress(SButton.MouseLeft);
 
-        Point pointer = GetPointer(PressUsesGameCoords);
+        // Process movement before release timing. Android may briefly report a synthetic mouse-up while
+        // the finger is still moving, so the grace window must not finish the gesture before drag detection.
+        Point delta = GetPointerDelta();
         if (!Dragging)
         {
             int slop = Math.Max(12, GetButtonSize() / 5);
-            int dx = pointer.X - PressStart.X;
-            int dy = pointer.Y - PressStart.Y;
-            if (dx * dx + dy * dy < slop * slop)
-                return;
-
-            Dragging = true;
+            if (delta.X * delta.X + delta.Y * delta.Y >= slop * slop)
+                Dragging = true;
         }
 
-        DragTopLeft = new Point(pointer.X - GrabOffset.X, pointer.Y - GrabOffset.Y);
+        if (Dragging)
+            DragTopLeft = new Point(PressButtonTopLeft.X + delta.X, PressButtonTopLeft.Y + delta.Y);
+
+        if (!IsPointerHeld())
+        {
+            if (++NotHeldTicks >= ReleaseGraceTicks)
+            {
+                FinishPress();
+                return;
+            }
+        }
+        else
+        {
+            NotHeldTicks = 0;
+        }
     }
 
     private void FinishPress()
@@ -672,6 +1058,7 @@ public sealed class ModEntry : Mod
         bool wasDragging = Dragging;
         Pressing = false;
         Dragging = false;
+        NotHeldTicks = 0;
 
         if (wasDragging)
         {
@@ -687,8 +1074,9 @@ public sealed class ModEntry : Mod
         if (!CanUseHudButton())
             return;
 
-        // A tap: open the menu if the finger is still on the button.
-        if (GetHudButtonHitArea().Contains(GetPointer(PressUsesGameCoords)))
+        // A tap: open the menu if the finger is still on the button (checked in both coordinate spaces).
+        Rectangle hit = GetHudButtonHitArea();
+        if (hit.Contains(GetScaledPointer()) || hit.Contains(GetGamePointer()) || hit.Contains(LastPointer))
             OpenSubscriptionMenu();
     }
 
@@ -806,8 +1194,7 @@ public sealed class ModEntry : Mod
 
     private static void DrawCentered(SpriteBatch b, string text, SpriteFont font, float centerX, float y, Color color)
     {
-        Vector2 size = font.MeasureString(text);
-        Utility.drawTextWithShadow(b, text, font, new Vector2(centerX - size.X / 2f, y), color);
+        Vector2 size = font.MeasureString(text);        Utility.drawTextWithShadow(b, text, font, new Vector2(centerX - size.X / 2f, y), color);
     }
 
     /// <summary>
@@ -816,7 +1203,7 @@ public sealed class ModEntry : Mod
     /// </summary>
     private void DrawAdvertisementPopup(SpriteBatch b)
     {
-        if (PopupSecondsRemaining <= 0 || CurrentMessage is null || IsAdFree() || !CanShowPopupNow())
+        if (PopupSecondsRemaining <= 0 || CurrentMessage is null || (IsAdFree() && !ForcePopupActive) || !CanShowPopupNow())
             return;
 
         int viewW = Game1.uiViewport.Width;
