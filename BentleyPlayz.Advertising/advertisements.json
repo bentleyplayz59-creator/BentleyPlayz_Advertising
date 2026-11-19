@@ -263,6 +263,21 @@
           "Body": "Good day, traveler.\\n\\nI have wares worth a look at my stall. I hope you will visit during your next trip to the desert.\\n\\n- Desert Trader"
         }
       ]
+    },
+    {
+      "Id": "BentleyPlayzAdvertising",
+      "DisplayName": "BENTLEYPLAYZ ADVERTISING",
+      "UnlockCondition": "Always",
+      "PopupVariations": [
+        "Advanced users: add your own custom businesses and ads to this file in your own local copy!",
+        "BentleyPlayz Advertising is proprietary. Custom advertiser entries may be added to your own local copy for personal use, but this does not grant permission to remake, redistribute, or publish modified versions of the mod. Written permission from BentleyPlayz is required."
+      ],
+      "MailVariations": [
+        {
+          "Title": "A note from BentleyPlayz Advertising",
+          "Body": "Hello!\\n\\nAdvanced users can add their own custom businesses and ads to this file in their own local copy.\\n\\nBentleyPlayz Advertising is proprietary and is not released under an open-source or open-content license. This notice does not grant permission to remake, redistribute, or publish modified versions of the mod. Written permission from BentleyPlayz is required. Custom advertiser entries may be added to your own local copy for personal use only.\\n\\n- BentleyPlayz Advertising"
+        }
+      ]
     }
   ],
   "SubscriptionOffers": [
