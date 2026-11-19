@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -15,6 +15,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          persist-credentials: true
 
       - name: Set up Stardew mod build environment
         uses: Pathoschild/SMAPI-ModBuildWorkflow/add-build-environment@v1
@@ -22,8 +24,38 @@ jobs:
       - name: Build mod and release ZIP
         run: dotnet build BentleyPlayz.Advertising/BentleyPlayz.Advertising.csproj --configuration Release
 
-      - name: Upload compiled mod ZIP
-        uses: Pathoschild/SMAPI-ModBuildWorkflow/upload-release-artifacts@v1
+      - name: Prepare repository download file
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          mkdir -p output
+          ZIP_FILE="$(find _releases -maxdepth 1 -type f -name '*.zip' -print -quit)"
+          if [ -z "$ZIP_FILE" ]; then
+            echo "Build did not produce a ZIP in _releases."
+            exit 1
+          fi
+          cp "$ZIP_FILE" output/BentleyPlayz.Advertising.zip
+          echo "Prepared output/BentleyPlayz.Advertising.zip"
+
+      - name: Upload standard downloadable workflow artifact
+        if: always() && github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
         with:
-          path: _releases
-          create_attestations: false
+          name: BentleyPlayz-Advertising
+          path: output/BentleyPlayz.Advertising.zip
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Commit ZIP into repository output folder
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f output/BentleyPlayz.Advertising.zip
+          if git diff --cached --quiet; then
+            echo "The repository download ZIP is already up to date."
+          else
+            git commit -m "Publish latest Advertising build ZIP"
+            git push origin HEAD:main
+          fi
