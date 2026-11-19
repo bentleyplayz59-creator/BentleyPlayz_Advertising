@@ -3,10 +3,10 @@
     <TargetFramework>net6.0</TargetFramework>
     <RootNamespace>BentleyPlayz.Advertising</RootNamespace>
     <AssemblyName>BentleyPlayz.Advertising</AssemblyName>
-    <Version>1.0.1</Version>
-    <AssemblyVersion>1.0.1.0</AssemblyVersion>
-    <FileVersion>1.0.1.0</FileVersion>
-    <InformationalVersion>1.0.1</InformationalVersion>
+    <Version>1.0.2</Version>
+    <AssemblyVersion>1.0.2.0</AssemblyVersion>
+    <FileVersion>1.0.2.0</FileVersion>
+    <InformationalVersion>1.0.2</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -15,8 +15,6 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Pathoschild.Stardew.ModBuildConfig" Version="4.4.0" />
-    <!-- Compile against SMAPI's Harmony API; the game loader supplies Harmony at runtime. -->
-    <PackageReference Include="Lib.Harmony" Version="2.3.3" IncludeAssets="compile" PrivateAssets="all" />
   </ItemGroup>
   <ItemGroup>
     <!-- config.json is intentionally NOT packaged: SMAPI creates it on first launch, so updating the mod never overwrites a player's settings. -->
