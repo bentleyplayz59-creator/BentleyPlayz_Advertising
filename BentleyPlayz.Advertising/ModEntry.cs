@@ -488,14 +488,14 @@ public sealed class ModEntry : Mod
     private void ResetAdClock() => AdElapsedSeconds = 0;
 
     /// <summary>
-    /// True only during active world gameplay. SMAPI's IsPlayerFree excludes menus, dialogue, and events;
-    /// the explicit game-state checks cover sleeping and day/fade transitions too.
+    /// True while the player is in an active save and the game window is focused.
+    /// Menus are deliberately allowed: the advertisement and subscription timers must keep
+    /// advancing while either the developer menu or subscription shop is open.
+    /// Dialogue, events, sleeping, and day/fade transitions remain excluded.
     /// </summary>
     private static bool IsActivelyPlaying() =>
         Context.IsWorldReady
         && Game1.game1.IsActive
-        && Context.IsPlayerFree
-        && Game1.activeClickableMenu is null
         && !Game1.dialogueUp
         && !Game1.eventUp
         && !Game1.newDay
