@@ -1,7 +1,5 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using System.Reflection;
-using HarmonyLib;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using StardewModdingAPI;
@@ -37,20 +35,10 @@ public sealed class ModEntry : Mod
     private double PopupSecondsRemaining;
     private double PopupTotalSeconds;
     private bool PopupPending;
-    private bool ForcePopupActive;
     private SubscriptionState Subscription = new();
     private int WelcomeCountdown;
     private bool WelcomeShownThisSave;
     private int AdTimerResumeTicks;
-
-    // Screenshot capture state. The Harmony postfix runs after Game1.Draw has flushed the complete frame.
-    private static ModEntry? ActiveInstance;
-    private Harmony? ScreenshotHarmony;
-    private long PopupGeneration;
-    private long CapturedPopupGeneration;
-    private string? LastAdvertisingLetterKey;
-    private int ScreenshotSequence;
-    private bool ManualScreenshotPending;
 
     /// <summary>Play-time seconds counted toward the next ad. Only advances while the game is actively being played.</summary>
     private double AdElapsedSeconds;
@@ -78,111 +66,12 @@ public sealed class ModEntry : Mod
         helper.Events.GameLoop.DayStarted += OnDayStarted;
         helper.Events.Display.RenderedHud += OnRenderedHud;
 
-        // Capture from the completed game frame, not from RenderedHud (which runs before the final batch is flushed).
-        ActiveInstance = this;
-        InstallScreenshotPatch();
         helper.Events.Input.ButtonPressed += OnButtonPressed;
         helper.Events.Input.ButtonReleased += OnButtonReleased;
         helper.Events.Content.AssetRequested += OnAssetRequested;
 
         Monitor.Log($"Bentley's Advertising {ModManifest.Version} loaded.", LogLevel.Info);
     }
-
-    // Public API consumed by Bentley's Advertising Dev Tools.
-    public override object? GetApi() => new BentleysAdvertisingApi(this);
-
-    public IReadOnlyList<string> GetAdvertiserIds() =>
-        Ads.Advertisers.Where(p => !string.IsNullOrWhiteSpace(p.Id)).Select(p => p.Id).ToList();
-
-    public string GetAdvertiserName(string advertiserId) =>
-        FindAdvertiser(advertiserId)?.DisplayName ?? advertiserId;
-
-    public int GetPopupCount(string advertiserId) =>
-        FindAdvertiser(advertiserId)?.PopupVariations.Count ?? 0;
-
-    public int GetLetterCount(string advertiserId) =>
-        FindAdvertiser(advertiserId)?.MailVariations.Count ?? 0;
-
-    public string? ForcePopup(string advertiserId)
-    {
-        if (!Context.IsWorldReady)
-            return "Load a save before forcing an advertisement.";
-
-        Advertiser? advertiser = FindAdvertiser(advertiserId);
-        if (advertiser is null)
-            return $"Advertiser '{advertiserId}' was not found.";
-
-        if (advertiser.PopupVariations.Count == 0)
-            return $"{advertiser.DisplayName} has no popup variations.";
-
-        CurrentAdvertiser = advertiser.DisplayName;
-        CurrentMessage = advertiser.PopupVariations[Game1.random.Next(advertiser.PopupVariations.Count)];
-        LastAdvertiserId = advertiser.Id;
-        PopupTotalSeconds = Math.Clamp(Config.PopupDurationSeconds, 3, 30);
-        PopupSecondsRemaining = PopupTotalSeconds;
-        PopupPending = false;
-        ForcePopupActive = true;
-        PopupGeneration++;
-        if (Config.PlayPopupSound)
-            Game1.playSound("dwop");
-
-        Monitor.Log($"Dev Tools forced a popup from {advertiser.DisplayName}.", LogLevel.Trace);
-        return null;
-    }
-
-    public string? ForceLetter(string advertiserId, bool deliverNow)
-    {
-        if (!Context.IsWorldReady)
-            return "Load a save before forcing an advertiser letter.";
-
-        Advertiser? advertiser = FindAdvertiser(advertiserId);
-        if (advertiser is null)
-            return $"Advertiser '{advertiserId}' was not found.";
-
-        if (advertiser.MailVariations.Count == 0)
-            return $"{advertiser.DisplayName} has no letter variations.";
-
-        List<int> available = Enumerable.Range(0, advertiser.MailVariations.Count)
-            .Where(index =>
-            {
-                string mailId = GetMailId(advertiser.Id, index);
-                return !Game1.player.mailReceived.Contains(mailId)
-                    && !Game1.player.mailbox.Contains(mailId)
-                    && !Game1.player.mailForTomorrow.Contains(mailId);
-            })
-            .ToList();
-
-        if (available.Count == 0)
-            return $"All letters from {advertiser.DisplayName} have already been received or queued.";
-
-        int variation = available[Game1.random.Next(available.Count)];
-        string selectedMailId = GetMailId(advertiser.Id, variation);
-        if (deliverNow)
-            Game1.player.mailbox.Add(selectedMailId);
-        else
-            Game1.player.mailForTomorrow.Add(selectedMailId);
-
-        Monitor.Log($"Dev Tools queued a letter from {advertiser.DisplayName} ({(deliverNow ? "mailbox now" : "tomorrow")}).", LogLevel.Trace);
-        return null;
-    }
-
-    public void ClearAdFree()
-    {
-        Subscription.RealTimeRemainingSeconds = null;
-        Subscription.InGameDayExpiry = null;
-        Monitor.Log("Dev Tools cleared the active ad-free subscription.", LogLevel.Trace);
-    }
-
-    public string GetStatusText()
-    {
-        if (!Context.IsWorldReady)
-            return "Load a save to see advertising status.";
-
-        return IsAdFree() ? $"Ad-free: {GetRemainingText()}" : GetNextAdText();
-    }
-
-    private Advertiser? FindAdvertiser(string advertiserId) =>
-        Ads.Advertisers.FirstOrDefault(p => string.Equals(p.Id, advertiserId, StringComparison.OrdinalIgnoreCase));
 
     /*********
     ** Data loading
@@ -406,7 +295,6 @@ public sealed class ModEntry : Mod
     private void ResetPopupState()
     {
         PopupPending = false;
-        ForcePopupActive = false;
         PopupSecondsRemaining = 0;
         PopupTotalSeconds = 0;
         CurrentAdvertiser = null;
@@ -454,27 +342,11 @@ public sealed class ModEntry : Mod
 
         if (IsAdFree())
         {
-            // Normal ads stay disabled during an ad-free pass, but an explicitly forced Dev Tools popup is allowed.
             ResetAdClock();
             PopupPending = false;
-
-            if (ForcePopupActive)
-            {
-                if (PopupSecondsRemaining > 0 && CanShowPopupNow() && delta > 0)
-                    PopupSecondsRemaining = Math.Max(0, PopupSecondsRemaining - delta);
-
-                if (PopupSecondsRemaining <= 0)
-                {
-                    ForcePopupActive = false;
-                    CurrentAdvertiser = null;
-                    CurrentMessage = null;
-                }
-            }
-            else
-            {
-                PopupSecondsRemaining = 0;
-            }
-
+            PopupSecondsRemaining = 0;
+            CurrentAdvertiser = null;
+            CurrentMessage = null;
             return;
         }
 
@@ -484,9 +356,8 @@ public sealed class ModEntry : Mod
         if (PopupSecondsRemaining > 0 && canShow && delta > 0)
         {
             PopupSecondsRemaining = Math.Max(0, PopupSecondsRemaining - delta);
-            if (PopupSecondsRemaining <= 0 && ForcePopupActive)
+            if (PopupSecondsRemaining <= 0)
             {
-                ForcePopupActive = false;
                 CurrentAdvertiser = null;
                 CurrentMessage = null;
             }
@@ -535,8 +406,6 @@ public sealed class ModEntry : Mod
         Advertiser advertiser = available[Game1.random.Next(available.Count)];
         CurrentAdvertiser = advertiser.DisplayName;
         CurrentMessage = advertiser.PopupVariations[Game1.random.Next(advertiser.PopupVariations.Count)];
-        ForcePopupActive = false;
-        PopupGeneration++;
         LastAdvertiserId = advertiser.Id;
         PopupTotalSeconds = Math.Clamp(Config.PopupDurationSeconds, 3, 30);
         PopupSecondsRemaining = PopupTotalSeconds;
@@ -766,20 +635,6 @@ public sealed class ModEntry : Mod
 
     private void OnButtonPressed(object? sender, ButtonPressedEventArgs e)
     {
-        if (e.Button == SButton.MouseLeft && CanUseManualScreenshotButton())
-        {
-            Rectangle screenshotBounds = GetManualScreenshotButtonBounds();
-            Point scaledPointer = e.Cursor.GetScaledScreenPixels().ToPoint();
-            Point gamePointer = GetGamePointer();
-            if (screenshotBounds.Contains(scaledPointer) || screenshotBounds.Contains(gamePointer))
-            {
-                ManualScreenshotPending = true;
-                Helper.Input.Suppress(e.Button);
-                Game1.playSound("smallSelect");
-                return;
-            }
-        }
-
         if (!CanUseHudButton())
             return;
 
@@ -994,176 +849,9 @@ public sealed class ModEntry : Mod
         // (so it stays visible and tappable during an ad).
         SafeDraw(() => DrawAdvertisementPopup(b), "advertisement popup");
         SafeDraw(() => DrawHudButton(b), "AD button");
-        if (!ManualScreenshotPending && !IsAdvertisingPopupVisible())
-            SafeDraw(() => DrawManualScreenshotButton(b), "manual screenshot button");
     }
 
     private bool LoggedDrawError;
-
-    /*********
-    ** Automatic and manual screenshots
-    *********/
-    private void InstallScreenshotPatch()
-    {
-        try
-        {
-            ScreenshotHarmony = new Harmony(ModManifest.UniqueID + ".Screenshots");
-            MethodInfo? drawMethod = AccessTools.Method(typeof(Game1), "Draw", new[] { typeof(GameTime) });
-            MethodInfo? postfix = AccessTools.Method(typeof(ModEntry), nameof(OnGameDrawn));
-            if (drawMethod is null || postfix is null)
-            {
-                Monitor.Log("Screenshot capture couldn't be enabled: the game draw method wasn't found.", LogLevel.Warn);
-                return;
-            }
-
-            ScreenshotHarmony.Patch(drawMethod, postfix: new HarmonyMethod(postfix));
-            Monitor.Log("Automatic advertising screenshots and the manual screenshot button are enabled.", LogLevel.Info);
-        }
-        catch (Exception ex)
-        {
-            Monitor.Log($"Screenshot capture couldn't be enabled: {ex}", LogLevel.Warn);
-        }
-    }
-
-    private static bool IsAdvertisingPopupVisible()
-    {
-        ModEntry? mod = ActiveInstance;
-        return mod is not null
-            && mod.PopupSecondsRemaining > 0
-            && mod.CurrentMessage is not null
-            && CanShowPopupNow()
-            && Game1.displayHUD
-            && (!mod.IsAdFree() || mod.ForcePopupActive);
-    }
-
-    /// <summary>
-    /// Runs after Stardew has drawn the frame. Capture the actual backbuffer once, instead of trying to
-    /// redraw a menu into a separate target (which can omit its background or render only the dim layer).
-    /// </summary>
-    private static void OnGameDrawn(Game1 __instance)
-    {
-        ModEntry? mod = ActiveInstance;
-        if (mod is null || !ReferenceEquals(__instance, Game1.game1) || !Context.IsWorldReady || !mod.Config.Enabled)
-            return;
-
-        if (mod.ManualScreenshotPending && mod.SaveBackbufferScreenshot("manual"))
-            mod.ManualScreenshotPending = false;
-
-        if (IsAdvertisingPopupVisible() && mod.PopupGeneration != mod.CapturedPopupGeneration)
-        {
-            if (mod.SaveBackbufferScreenshot("popup"))
-                mod.CapturedPopupGeneration = mod.PopupGeneration;
-        }
-
-        string? advertisingLetterKey = GetOpenAdvertisingLetterKey();
-        if (advertisingLetterKey is not null)
-        {
-            if (!string.Equals(advertisingLetterKey, mod.LastAdvertisingLetterKey, StringComparison.Ordinal)
-                && mod.SaveBackbufferScreenshot("letter"))
-                mod.LastAdvertisingLetterKey = advertisingLetterKey;
-        }
-        else
-        {
-            mod.LastAdvertisingLetterKey = null;
-        }
-    }
-
-    /// <summary>
-    /// LetterViewerMenu retains the mail ID in mailTitle. The sender signature is also checked as a fallback,
-    /// so unrelated vanilla or other-mod letters aren't captured.
-    /// </summary>
-    private static string? GetOpenAdvertisingLetterKey()
-    {
-        if (Game1.activeClickableMenu is not StardewValley.Menus.LetterViewerMenu menu)
-            return null;
-
-        if (!string.IsNullOrWhiteSpace(menu.mailTitle)
-            && menu.mailTitle.StartsWith(MailPrefix, StringComparison.Ordinal))
-            return menu.mailTitle;
-
-        const string signature = "Sent from Bentley's Advertising.";
-        if (menu.mailMessage.Any(page => page.Contains(signature, StringComparison.Ordinal)))
-            return "signature:" + string.Join("|", menu.mailMessage);
-
-        return null;
-    }
-
-    /// <summary>Saves the complete rendered game frame to a uniquely named PNG.</summary>
-    private bool SaveBackbufferScreenshot(string kind)
-    {
-        Texture2D? texture = null;
-        try
-        {
-            GraphicsDevice graphicsDevice = Game1.graphics.GraphicsDevice;
-            PresentationParameters parameters = graphicsDevice.PresentationParameters;
-            int width = parameters.BackBufferWidth;
-            int height = parameters.BackBufferHeight;
-            if (width <= 0 || height <= 0)
-                throw new InvalidOperationException("The graphics backbuffer has an invalid size.");
-
-            Color[] pixels = new Color[checked(width * height)];
-            graphicsDevice.GetBackBufferData(pixels);
-            texture = new Texture2D(graphicsDevice, width, height, false, SurfaceFormat.Color);
-            texture.SetData(pixels);
-
-            string folder = Path.Combine(Helper.DirectoryPath, "Screenshots");
-            Directory.CreateDirectory(folder);
-
-            string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff");
-            string fileName = $"{kind}_{timestamp}_{++ScreenshotSequence:D4}.png";
-            string path = Path.Combine(folder, fileName);
-            using FileStream stream = new(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
-            texture.SaveAsPng(stream, width, height);
-
-            Monitor.Log($"Saved full-frame {kind} screenshot: {path}", LogLevel.Info);
-            return true;
-        }
-        catch (Exception ex)
-        {
-            Monitor.Log($"Couldn't save the {kind} screenshot: {ex}", LogLevel.Warn);
-            return false;
-        }
-        finally
-        {
-            texture?.Dispose();
-        }
-    }
-
-    private bool CanUseManualScreenshotButton() =>
-        Context.IsWorldReady && Config.Enabled && Game1.displayHUD
-        && Game1.activeClickableMenu == null && !Game1.eventUp;
-
-    private Rectangle GetManualScreenshotButtonBounds()
-    {
-        const int width = 190;
-        const int height = 48;
-        return new Rectangle((Game1.uiViewport.Width - width) / 2, 12, width, height);
-    }
-
-    private void DrawManualScreenshotButton(SpriteBatch b)
-    {
-        if (!CanUseManualScreenshotButton())
-            return;
-
-        Rectangle bounds = GetManualScreenshotButtonBounds();
-        Point pointer = GetGamePointer();
-        bool hovered = bounds.Contains(pointer);
-        Color tint = hovered ? new Color(85, 125, 175) : new Color(55, 85, 125);
-
-        b.Draw(Game1.staminaRect,
-            new Rectangle(bounds.X + 3, bounds.Y + 4, bounds.Width, bounds.Height),
-            Color.Black * 0.35f);
-        StardewValley.Menus.IClickableMenu.drawTextureBox(
-            b, Game1.menuTexture, new Rectangle(0, 256, 60, 60),
-            bounds.X, bounds.Y, bounds.Width, bounds.Height, tint, 2f, false);
-
-        const string label = "TAKE SCREENSHOT";
-        Vector2 labelSize = Game1.smallFont.MeasureString(label);
-        Utility.drawTextWithShadow(
-            b, label, Game1.smallFont,
-            new Vector2(bounds.Center.X - labelSize.X / 2f, bounds.Center.Y - labelSize.Y / 2f),
-            Color.White);
-    }
 
     private void SafeDraw(Action draw, string what)
     {
@@ -1223,7 +911,7 @@ public sealed class ModEntry : Mod
     /// </summary>
     private void DrawAdvertisementPopup(SpriteBatch b)
     {
-        if (PopupSecondsRemaining <= 0 || CurrentMessage is null || (IsAdFree() && !ForcePopupActive) || !CanShowPopupNow())
+        if (PopupSecondsRemaining <= 0 || CurrentMessage is null || IsAdFree() || !CanShowPopupNow())
             return;
 
         int viewW = Game1.uiViewport.Width;
