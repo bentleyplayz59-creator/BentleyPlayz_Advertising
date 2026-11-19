@@ -25,11 +25,8 @@ public sealed class ModConfig
     /// <summary>Keyboard shortcut that opens the subscription menu (set to None to disable).</summary>
     public SButton OpenMenuKey { get; set; } = SButton.K;
 
-    /// <summary>Enables the built-in developer tools. Off by default for normal players.</summary>
-    public bool EnableDevMode { get; set; } = false;
-
-    /// <summary>Show the touch-friendly DEV button while developer mode is enabled.</summary>
-    public bool ShowDevButton { get; set; } = true;
+    /// <summary>Show the touch-friendly DEV button. The developer menu remains available through its keyboard shortcut.</summary>
+    public bool ShowDevButton { get; set; } = false;
 
     /// <summary>Keyboard shortcut that opens the developer menu (set to None to disable).</summary>
     public SButton DevOpenMenuKey { get; set; } = SButton.F8;
