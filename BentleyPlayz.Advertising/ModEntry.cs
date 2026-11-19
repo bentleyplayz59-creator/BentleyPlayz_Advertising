@@ -60,6 +60,7 @@ public sealed class ModEntry : Mod
         LoadLocalState();
         LoadAdvertisements();
 
+        helper.Events.GameLoop.GameLaunched += OnGameLaunched;
         helper.Events.GameLoop.SaveLoaded += OnSaveLoaded;
         helper.Events.GameLoop.ReturnedToTitle += OnReturnedToTitle;
         helper.Events.GameLoop.Saving += OnSaving;
@@ -74,6 +75,75 @@ public sealed class ModEntry : Mod
         helper.Events.Content.AssetRequested += OnAssetRequested;
 
         Monitor.Log($"Bentley's Advertising {ModManifest.Version} loaded.", LogLevel.Info);
+    }
+
+
+    /*********
+    ** Generic Mod Config Menu
+    *********/
+    private void OnGameLaunched(object? sender, GameLaunchedEventArgs e)
+    {
+        IGenericModConfigMenuApi? api = Helper.ModRegistry.GetApi<IGenericModConfigMenuApi>("spacechase0.GenericModConfigMenu");
+        if (api is null)
+        {
+            Monitor.Log("Generic Mod Config Menu isn't installed; settings can still be edited through config.json.", LogLevel.Trace);
+            return;
+        }
+
+        api.Register(ModManifest, ResetConfig, SaveConfig, titleScreenOnly: false);
+
+        api.AddSectionTitle(ModManifest, () => "Advertising");
+        api.AddBoolOption(ModManifest, () => Config.Enabled, value => Config.Enabled = value,
+            () => "Enable advertising", () => "Turns the advertising system on or off.");
+        api.AddNumberOption(ModManifest, () => Config.AdvertisementIntervalMinutes, value => Config.AdvertisementIntervalMinutes = value,
+            () => "Advertisement interval (minutes)", () => "Play-time minutes between advertisements.", min: 1, max: 120);
+        api.AddBoolOption(ModManifest, () => Config.EnablePopups, value => Config.EnablePopups = value,
+            () => "Enable advertisement popups");
+        api.AddBoolOption(ModManifest, () => Config.EnableMail, value => Config.EnableMail = value,
+            () => "Enable advertising letters");
+        api.AddBoolOption(ModManifest, () => Config.EnableSubscriptions, value => Config.EnableSubscriptions = value,
+            () => "Enable ad-free subscriptions");
+
+        api.AddSectionTitle(ModManifest, () => "Popup appearance");
+        api.AddNumberOption(ModManifest, () => Config.PopupDurationSeconds, value => Config.PopupDurationSeconds = value,
+            () => "Popup duration (seconds)", () => "How long each popup stays visible.", min: 3, max: 30);
+        api.AddNumberOption(ModManifest, () => Config.PopupDimAmount, value => Config.PopupDimAmount = value,
+            () => "Background dim amount", () => "0 is no dimming; 0.9 is the darkest setting.", min: 0f, max: 0.9f, interval: 0.05f);
+        api.AddBoolOption(ModManifest, () => Config.PlayPopupSound, value => Config.PlayPopupSound = value,
+            () => "Play popup sound");
+
+        api.AddSectionTitle(ModManifest, () => "AD button");
+        api.AddNumberOption(ModManifest, () => Config.HudButtonSize, value => Config.HudButtonSize = value,
+            () => "AD button size", () => "Button width and height in UI pixels.", min: 48, max: 128);
+        api.AddKeybind(ModManifest, () => Config.OpenMenuKey, value => Config.OpenMenuKey = value,
+            () => "Open AD menu key", () => "Set to None to disable the keyboard shortcut.");
+
+        api.AddSectionTitle(ModManifest, () => "Developer tools");
+        api.AddParagraph(ModManifest, () => "Developer mode is disabled by default. Enable it to show the DEV button and activate its keyboard shortcut.");
+        api.AddBoolOption(ModManifest, () => Config.EnableDevMode, value => Config.EnableDevMode = value,
+            () => "Enable developer mode", () => "Enables the built-in developer menu. Off by default.");
+        api.AddBoolOption(ModManifest, () => Config.ShowDevButton, value => Config.ShowDevButton = value,
+            () => "Show DEV button", () => "Show the touch-friendly DEV button while developer mode is enabled.");
+        api.AddKeybind(ModManifest, () => Config.DevOpenMenuKey, value => Config.DevOpenMenuKey = value,
+            () => "Open developer menu key", () => "Set to None to disable the keyboard shortcut.");
+        api.AddNumberOption(ModManifest, () => Config.DevButtonSize, value => Config.DevButtonSize = value,
+            () => "DEV button size", () => "Button width and height in UI pixels.", min: 40, max: 96);
+        api.AddNumberOption(ModManifest, () => Config.DevButtonOffsetX, value => Config.DevButtonOffsetX = value,
+            () => "DEV button horizontal offset", () => "Distance from the left edge in UI pixels.", min: 0, max: 500);
+        api.AddNumberOption(ModManifest, () => Config.DevButtonOffsetY, value => Config.DevButtonOffsetY = value,
+            () => "DEV button vertical offset", () => "Distance from the top edge in UI pixels.", min: 0, max: 500);
+
+        Monitor.Log("Registered advertising settings with Generic Mod Config Menu.", LogLevel.Info);
+    }
+
+    private void ResetConfig()
+    {
+        Config = new ModConfig();
+    }
+
+    private void SaveConfig()
+    {
+        Helper.WriteConfig(Config);
     }
 
 
