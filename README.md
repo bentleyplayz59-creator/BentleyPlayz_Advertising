@@ -21,7 +21,7 @@ Updating: replace the `BentleyPlayz.Advertising` folder with the new one. Your s
 
 - **Randomized advertisement popups** on a timer (five minutes by default). The screen dims and a parchment box with a red ADVERTISEMENT tab shows the advertiser's name and message for a few seconds. Player movement is never blocked, and a popup that fires during a menu or cutscene waits until you can see it.
 - **Advertising letters** delivered through the in-game mailbox. Advertisers can be gated behind progression, such as the repaired bus.
-- **Automatic screenshots** of each newly displayed advertisement popup (including Dev Tools-forced popups) and each opened Bentley's Advertising letter. PNG files are saved without overwriting earlier captures in the mod's `Screenshots` folder.
+- **Automatic screenshots** of each displayed advertisement popup (including Dev Tools-forced popups) and each opened Bentley's Advertising letter. Captures use the rendered game frame and save uniquely named PNG files in the mod's `Screenshots` folder. A **TAKE SCREENSHOT** button at the top center also saves a full-screen PNG on demand; the button is hidden from the captured image.
 - **Multiple message variations** per advertiser, avoiding consecutive repeats where possible.
 - **Ad-free subscriptions** bought with in-game gold (see below), split into a **Short Duration** section at the top of the shop and longer subscriptions below. While a subscription is active no popups or letters are generated.
 - **Draggable AD button.** Defaults to the bottom-right corner; drag it anywhere on screen with a mouse or a finger. The position is saved and the button always stays fully on screen.
@@ -34,6 +34,7 @@ Updating: replace the `BentleyPlayz.Advertising` folder with the new one. Your s
 | Action | Touch / mouse | Keyboard |
 | --- | --- | --- |
 | Open the AD menu | Tap or click the gold AD button | `K` (configurable, `OpenMenuKey`) |
+| Take a full-screen screenshot | Tap **TAKE SCREENSHOT** at the top center | - |
 | Move the AD button | Press and hold the button, then drag | - |
 | Reset the AD button to its corner | AD menu > **Reset AD button** | - |
 | Select an offer | Tap it | - |
@@ -98,7 +99,7 @@ First official production release.
 - `advertisements.json`: advertiser copy, unlock conditions and subscription offers.
 - `config.json` (created on first run): player settings.
 - `local-state.json` (created on first run): AD button position and welcome-screen flag.
-- `Screenshots/` (created automatically): PNG captures of advertising popups and opened advertising letters.
+- `Screenshots/` (created automatically): PNG captures of advertising popups, opened advertising letters, and manual full-screen screenshots.
 
 ## Build
 
