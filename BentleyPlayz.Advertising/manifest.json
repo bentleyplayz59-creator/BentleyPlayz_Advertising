@@ -1,8 +1,8 @@
 {
   "Name": "Bentley's Advertising",
   "Author": "Bentley Playz",
-  "Version": "1.0.2",
-  "Description": "A town-wide advertising system with randomized promotions and optional ad-free subscriptions.",
+  "Version": "1.0.3",
+  "Description": "A town-wide advertising system with randomized promotions, optional ad-free subscriptions, and optional built-in developer tools.",
   "UniqueID": "BentleyPlayz.Advertising",
   "EntryDll": "BentleyPlayz.Advertising.dll",
   "MinimumApiVersion": "4.3.0"
