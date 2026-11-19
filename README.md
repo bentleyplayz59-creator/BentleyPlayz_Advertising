@@ -4,6 +4,10 @@ A Stardew Valley SMAPI mod by Bentley Playz. **Version 1.0.0.**
 
 Pelican Town's businesses now compete for your attention: randomized advertisement popups appear on a timer, advertising letters turn up in your mailbox, and you can spend gold on temporary ad-free subscriptions.
 
+## Testing
+
+All features in this mod have been tested in-game, including the advertisement system, mailbox letters, subscription purchases, the scrollable subscription menu, and the developer menu. This is a Bentley Playz mod.
+
 ## Installation
 
 1. Install the game and [SMAPI](https://smapi.io) (on Android, use a SMAPI launcher for Android). The mod needs SMAPI 4.3.0 or newer.
