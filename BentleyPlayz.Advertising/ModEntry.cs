@@ -119,11 +119,8 @@ public sealed class ModEntry : Mod
             () => "Open AD menu key", () => "Set to None to disable the keyboard shortcut.");
 
         api.AddSectionTitle(ModManifest, () => "Developer tools");
-        api.AddParagraph(ModManifest, () => "Developer mode is disabled by default. Enable it to show the DEV button and activate its keyboard shortcut.");
-        api.AddBoolOption(ModManifest, () => Config.EnableDevMode, value => Config.EnableDevMode = value,
-            () => "Enable developer mode", () => "Enables the built-in developer menu. Off by default.");
         api.AddBoolOption(ModManifest, () => Config.ShowDevButton, value => Config.ShowDevButton = value,
-            () => "Show DEV button", () => "Show the touch-friendly DEV button while developer mode is enabled.");
+            () => "Show DEV button", () => "Shows the touch-friendly DEV button. The F8 shortcut works even when this button is hidden.");
         api.AddKeybind(ModManifest, () => Config.DevOpenMenuKey, value => Config.DevOpenMenuKey = value,
             () => "Open developer menu key", () => "Set to None to disable the keyboard shortcut.");
         api.AddNumberOption(ModManifest, () => Config.DevButtonSize, value => Config.DevButtonSize = value,
@@ -151,7 +148,7 @@ public sealed class ModEntry : Mod
     ** Integrated developer tools (disabled by default)
     *********/
     private bool CanUseDevButton() =>
-        Config.EnableDevMode && Config.ShowDevButton && Context.IsWorldReady
+        Config.ShowDevButton && Context.IsWorldReady
         && Game1.activeClickableMenu == null && !Game1.eventUp && Game1.displayHUD;
 
     private Rectangle GetDevButtonBounds()
@@ -181,7 +178,7 @@ public sealed class ModEntry : Mod
 
     private void OnDevButtonPressed(object? sender, ButtonPressedEventArgs e)
     {
-        if (!Config.EnableDevMode || !Context.IsWorldReady || Game1.activeClickableMenu != null || Game1.eventUp)
+        if (!Context.IsWorldReady || Game1.activeClickableMenu != null || Game1.eventUp)
             return;
 
         if (Config.DevOpenMenuKey != SButton.None && e.Button == Config.DevOpenMenuKey)
