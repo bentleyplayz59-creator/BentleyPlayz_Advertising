@@ -1,12 +1,12 @@
 # Bentley's Advertising
 
-A Stardew Valley SMAPI mod by Bentley Playz. **Version 1.0.4.**
+A Stardew Valley SMAPI mod by Bentley Playz. **Version 1.0.5.**
 
 Pelican Town's businesses now compete for your attention: randomized advertisement popups appear on a timer, advertising letters turn up in your mailbox, and you can spend gold on temporary ad-free subscriptions.
 
 ## Testing
 
-The 1.0.4 build contains the advertising gameplay, mailbox letters, subscription shop, draggable AD button, per-save play-time tracking, and the developer menu integrated into the same mod. Developer mode is disabled by default. The temporary screenshot collection feature is removed. Install only this mod folder; no companion Dev Tools mod is needed.
+The 1.0.5 build contains the advertising gameplay, mailbox letters, subscription shop, draggable AD button, per-save play-time tracking, and the developer menu integrated into the same mod. The on-screen DEV button is hidden by default. The temporary screenshot collection feature is removed. Install only this mod folder; no companion Dev Tools mod is needed.
 
 ## Installation
 
@@ -26,7 +26,7 @@ Updating: replace the `BentleyPlayz.Advertising` folder with the new one. Your s
 - **Ad-free subscriptions** bought with in-game gold (see below), split into a **Short Duration** section at the top of the shop and longer subscriptions below. While a subscription is active no popups or letters are generated.
 - **Draggable AD button.** Defaults to the bottom-right corner; drag it anywhere on screen with a mouse or a finger. The position is saved and the button always stays fully on screen.
 - **First-launch welcome screen** that explains the mod once per installation.
-- **Built-in developer tools (optional).** Enable `EnableDevMode` in this mod's `config.json` to show the DEV button and enable the `F8` shortcut. The developer menu can force ad popups, deliver advertiser letters immediately or tomorrow, and clear an active ad-free subscription. It is disabled by default.
+- **Built-in developer tools.** The developer menu is available with `F8` by default. The on-screen DEV button is optional and hidden by default; set `ShowDevButton` to `true` in `config.json` or enable it in GMCM to display it.
 - **Per-save timers.** The countdown to the next ad and your subscription are stored in each save file. Both only count down while you are actually playing: they stop on the title screen and while the game is in the background or paused.
 - One DLL; all advertiser text and subscription offers live in `advertisements.json`.
 
@@ -37,7 +37,7 @@ Updating: replace the `BentleyPlayz.Advertising` folder with the new one. Your s
 | Open the AD menu | Tap or click the gold AD button | `K` (configurable, `OpenMenuKey`) |
 | Move the AD button | Press and hold the button, then drag | - |
 | Reset the AD button to its corner | AD menu > **Reset AD button** | - |
-| Open the developer menu (when enabled) | Tap the purple DEV button | `F8` (configurable, `DevOpenMenuKey`) |
+| Open the developer menu | Tap the purple DEV button (if shown) | `F8` (configurable, `DevOpenMenuKey`) |
 | Select an offer | Tap it | - |
 | Scroll offers | Drag the list or use the arrows | Mouse wheel |
 | Buy | Select an offer, tap **Buy**, then confirm | - |
@@ -64,7 +64,7 @@ Open the AD menu to see the time until the next ad, your gold, every offer's pri
 
 ## Configuration
 
-All settings are registered in Generic Mod Config Menu when GMCM is installed. The menu supports live configuration changes and includes the developer-mode controls. GMCM is optional; without it, `config.json` is still created and can be edited manually.
+All settings are registered in Generic Mod Config Menu when GMCM is installed. The menu supports live configuration changes and includes the DEV button visibility setting. GMCM is optional; without it, `config.json` is still created and can be edited manually.
 
 `config.json` is created the first time the game runs with the mod:
 
@@ -80,8 +80,7 @@ All settings are registered in Generic Mod Config Menu when GMCM is installed. T
 | `PlayPopupSound` | `true` | Play a sound when a popup appears. |
 | `HudButtonSize` | `72` | AD button size in UI pixels (48-128). Larger is easier to tap. |
 | `OpenMenuKey` | `K` | Keyboard shortcut for the AD menu (`None` disables it). |
-| `EnableDevMode` | `false` | Enables the built-in developer menu and DEV button. Off by default. |
-| `ShowDevButton` | `true` | Show the touch-friendly DEV button when developer mode is enabled. |
+| `ShowDevButton` | `false` | Show the touch-friendly DEV button. The F8 developer-menu shortcut works independently. |
 | `DevOpenMenuKey` | `F8` | Keyboard shortcut for the developer menu (`None` disables it). |
 | `DevButtonSize` | `64` | DEV button size in UI pixels (40-96). |
 | `DevButtonOffsetX` | `16` | DEV button distance from the left edge in UI pixels. |
@@ -97,7 +96,7 @@ First official production release.
 - One-time welcome screen, sized for small phone screens.
 - Rebalanced subscription prices, a purchase confirmation step, and clearer price and duration text.
 - Ad timer and hour-based subscriptions now count play time only. Subscriptions from earlier versions are converted automatically when the save loads.
-- Development tools are now integrated into the main mod and disabled by default (`EnableDevMode: false`).
+- Development tools are integrated into the main mod. The F8 shortcut works independently, and the optional DEV button is hidden by default (`ShowDevButton: false`).
 - Removed obsolete config options (`PopupCorner`, `HudButtonPosition`, `HudButtonOffsetFromRight`, `HudButtonOffsetFromTop`). Old `config.json` files that still contain them keep working; the extra entries are ignored.
 - `config.json` is no longer shipped in the ZIP, so updates never overwrite your settings.
 
