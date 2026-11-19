@@ -19,6 +19,9 @@ public sealed class ModEntry : Mod
     /// <summary>Ticks to wait after a save loads before the welcome screen may appear (lets the fade-in finish).</summary>
     private const int WelcomeDelayTicks = 120;
 
+    /// <summary>Active gameplay ticks to wait after loading before the saved ad countdown resumes.</summary>
+    private const int AdTimerResumeDelayTicks = 120;
+
     /// <summary>Consecutive ticks the pointer must read as released; prevents Android touch-state flicker ending a drag.</summary>
     private static readonly int ReleaseGraceTicks = OperatingSystem.IsAndroid() ? 30 : 2;
 
@@ -36,6 +39,7 @@ public sealed class ModEntry : Mod
     private SubscriptionState Subscription = new();
     private int WelcomeCountdown;
     private bool WelcomeShownThisSave;
+    private int AdTimerResumeTicks;
 
     /// <summary>Play-time seconds counted toward the next ad. Only advances while the game is actively being played.</summary>
     private double AdElapsedSeconds;
@@ -304,17 +308,28 @@ public sealed class ModEntry : Mod
     private void ResetAdClock() => AdElapsedSeconds = 0;
 
     /// <summary>
-    /// True while the game is actually being played. Timers do not advance on the title screen, while the window is
-    /// in the background, or when the app is paused (on Android the game also stops updating entirely then).
+    /// True only during active world gameplay. SMAPI's IsPlayerFree excludes menus, dialogue, and events;
+    /// the explicit game-state checks cover sleeping and day/fade transitions too.
     /// </summary>
     private static bool IsActivelyPlaying() =>
-        Context.IsWorldReady && Game1.game1.IsActive;
+        Context.IsWorldReady
+        && Game1.game1.IsActive
+        && Context.IsPlayerFree
+        && Game1.activeClickableMenu is null
+        && !Game1.dialogueUp
+        && !Game1.eventUp
+        && !Game1.newDay
+        && !Game1.fadeToBlack
+        && Game1.fadeToBlackAlpha <= 0f
+        && Game1.player is not null
+        && !Game1.player.isInBed.Value;
 
-    /// <summary>Seconds of game time that passed this tick, capped so a hitch can never burn a big chunk of a timer.</summary>
-    private static double GetTickSeconds() =>
-        Game1.currentGameTime is null
-            ? 1d / 60d
-            : Math.Min(0.25d, Game1.currentGameTime.ElapsedGameTime.TotalSeconds);
+    /// <summary>Elapsed seconds for this update, capped to prevent lag spikes from advancing the timer.</summary>
+    private static double GetTickSeconds()
+    {
+        double elapsed = Game1.currentGameTime?.ElapsedGameTime.TotalSeconds ?? 0d;
+        return double.IsFinite(elapsed) ? Math.Clamp(elapsed, 0d, 0.25d) : 0d;
+    }
 
     /*********
     ** Save / lifecycle
@@ -328,11 +343,12 @@ public sealed class ModEntry : Mod
         ResetPopupState();
         CancelButtonPress();
 
-        // Pick the countdown up where the save left off. The cap gives a short grace period so an ad that was
-        // almost due when you saved doesn't pop up the instant the save finishes loading.
+        // Restore the saved progress without resetting it. The first two seconds of eligible gameplay after
+        // loading are a resume grace period, so loading itself can never trigger an ad.
         double interval = GetIntervalSeconds();
         double saved = Subscription.AdTimerSeconds ?? 0;
-        AdElapsedSeconds = Math.Clamp(saved, 0, Math.Max(0, interval - 20));
+        AdElapsedSeconds = Math.Clamp(saved, 0, interval);
+        AdTimerResumeTicks = AdTimerResumeDelayTicks;
 
         WelcomeCountdown = WelcomeDelayTicks;
     }
@@ -362,6 +378,7 @@ public sealed class ModEntry : Mod
         ResetPopupState();
         CancelButtonPress();
         AdElapsedSeconds = 0;
+        AdTimerResumeTicks = 0;
     }
 
     private void OnSaving(object? sender, SavingEventArgs e)
@@ -403,6 +420,12 @@ public sealed class ModEntry : Mod
 
         bool playing = IsActivelyPlaying();
         double delta = playing ? GetTickSeconds() : 0d;
+        double adDelta = delta;
+        if (playing && AdTimerResumeTicks > 0)
+        {
+            AdTimerResumeTicks--;
+            adDelta = 0d;
+        }
 
         // Subscription time left only counts down while the game is actually being played.
         if (delta > 0 && Subscription.RealTimeRemainingSeconds is double remaining)
@@ -454,7 +477,7 @@ public sealed class ModEntry : Mod
             }
         }
 
-        AdElapsedSeconds += delta;
+        AdElapsedSeconds += adDelta;
         if (AdElapsedSeconds >= GetIntervalSeconds())
         {
             ResetAdClock();
