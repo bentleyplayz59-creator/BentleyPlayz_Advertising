@@ -64,7 +64,7 @@ public sealed class ModEntry : Mod
     }
 
     // Public API consumed by Bentley's Advertising Dev Tools.
-    public override object GetApi() => this;
+    public override object? GetApi() => new BentleysAdvertisingApi(this);
 
     public IReadOnlyList<string> GetAdvertiserIds() =>
         Ads.Advertisers.Where(p => !string.IsNullOrWhiteSpace(p.Id)).Select(p => p.Id).ToList();
@@ -632,7 +632,7 @@ public sealed class ModEntry : Mod
 
     /// <summary>
     /// One rectangle is used for both drawing and clicking, so the two can't drift apart.
-    /// Default is the bottom-left corner; a saved or in-progress drag position overrides it. Always clamped on screen.
+    /// Default is the original bottom-right corner; a saved or in-progress drag position overrides it. The button remains draggable and is clamped on screen.
     /// </summary>
     private Rectangle GetHudButtonBounds()
     {
