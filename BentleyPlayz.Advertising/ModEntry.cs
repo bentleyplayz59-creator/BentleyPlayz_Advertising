@@ -66,15 +66,105 @@ public sealed class ModEntry : Mod
         helper.Events.GameLoop.UpdateTicked += OnUpdateTicked;
         helper.Events.GameLoop.DayStarted += OnDayStarted;
         helper.Events.Display.RenderedHud += OnRenderedHud;
+        helper.Events.Display.RenderedHud += OnRenderedDevHud;
 
         helper.Events.Input.ButtonPressed += OnButtonPressed;
+        helper.Events.Input.ButtonPressed += OnDevButtonPressed;
         helper.Events.Input.ButtonReleased += OnButtonReleased;
         helper.Events.Content.AssetRequested += OnAssetRequested;
 
         Monitor.Log($"Bentley's Advertising {ModManifest.Version} loaded.", LogLevel.Info);
     }
 
-    // Public API consumed by Bentley's Advertising Dev Tools.
+
+    /*********
+    ** Integrated developer tools (disabled by default)
+    *********/
+    private bool CanUseDevButton() =>
+        Config.EnableDevMode && Config.ShowDevButton && Context.IsWorldReady
+        && Game1.activeClickableMenu == null && !Game1.eventUp && Game1.displayHUD;
+
+    private Rectangle GetDevButtonBounds()
+    {
+        int size = Math.Clamp(Config.DevButtonSize, 40, 96);
+        int x = Math.Clamp(Config.DevButtonOffsetX, 0, Math.Max(0, Game1.uiViewport.Width - size));
+        int y = Math.Clamp(Config.DevButtonOffsetY, 0, Math.Max(0, Game1.uiViewport.Height - size));
+        return new Rectangle(x, y, size, size);
+    }
+
+    private void OpenDevMenu()
+    {
+        if (!Context.IsWorldReady)
+            return;
+
+        try
+        {
+            Game1.playSound("bigSelect");
+            Game1.activeClickableMenu = new DevMenu(new BentleysAdvertisingApi(this));
+        }
+        catch (Exception ex)
+        {
+            Monitor.Log($"Couldn't open the developer menu: {ex}", LogLevel.Error);
+            Game1.addHUDMessage(new HUDMessage("Advertising Dev Tools couldn't open. See the SMAPI log.", HUDMessage.error_type));
+        }
+    }
+
+    private void OnDevButtonPressed(object? sender, ButtonPressedEventArgs e)
+    {
+        if (!Config.EnableDevMode || !Context.IsWorldReady || Game1.activeClickableMenu != null || Game1.eventUp)
+            return;
+
+        if (Config.DevOpenMenuKey != SButton.None && e.Button == Config.DevOpenMenuKey)
+        {
+            if (Game1.chatBox is not null && Game1.chatBox.isActive())
+                return;
+
+            Helper.Input.Suppress(e.Button);
+            OpenDevMenu();
+            return;
+        }
+
+        if (!CanUseDevButton() || (e.Button != SButton.MouseLeft && !e.Button.IsUseToolButton()))
+            return;
+
+        Rectangle hit = GetDevButtonBounds();
+        hit.Inflate(10, 10);
+        Point scaled = e.Cursor.GetScaledScreenPixels().ToPoint();
+        Point game = new(Game1.getMouseX(true), Game1.getMouseY(true));
+        if (!hit.Contains(scaled) && !hit.Contains(game))
+            return;
+
+        Helper.Input.Suppress(e.Button);
+        OpenDevMenu();
+    }
+
+    private void OnRenderedDevHud(object? sender, RenderedHudEventArgs e)
+    {
+        if (!CanUseDevButton())
+            return;
+
+        SpriteBatch b = e.SpriteBatch;
+        Rectangle area = GetDevButtonBounds();
+        b.Draw(Game1.staminaRect, new Rectangle(area.X + 4, area.Y + 6, area.Width, area.Height), Color.Black * 0.35f);
+        StardewValley.Menus.IClickableMenu.drawTextureBox(
+            b, Game1.mouseCursors, new Rectangle(432, 439, 9, 9),
+            area.X, area.Y, area.Width, area.Height, Color.MediumPurple, 4f, false);
+
+        const string label = "DEV";
+        SpriteFont font = Game1.dialogueFont;
+        Vector2 size = font.MeasureString(label);
+        if (size.X > area.Width - 14)
+        {
+            font = Game1.smallFont;
+            size = font.MeasureString(label);
+        }
+
+        Utility.drawTextWithShadow(b, label, font,
+            new Vector2(area.X + (area.Width - size.X) / 2f, area.Y + (area.Height - size.Y) / 2f),
+            Color.White);
+    }
+
+    // Public API retained for optional external integrations.
     public override object? GetApi() => new BentleysAdvertisingApi(this);
 
     public IReadOnlyList<string> GetAdvertiserIds() =>
