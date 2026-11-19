@@ -323,7 +323,7 @@ public sealed class ModEntry : Mod
     {
         // Everything here is stored inside the save file, so each save has its own subscription and ad timer.
         Subscription = Helper.Data.ReadSaveData<SubscriptionState>("subscription-state") ?? new SubscriptionState();
-        WelcomeShownThisSave = Helper.Data.ReadSaveData<bool?>("welcome-shown") ?? false;
+        WelcomeShownThisSave = string.Equals(Helper.Data.ReadSaveData<string>("welcome-shown"), "shown", StringComparison.Ordinal);
         MigrateLegacySubscription();
         ResetPopupState();
         CancelButtonPress();
@@ -536,7 +536,7 @@ public sealed class ModEntry : Mod
 
         // Record it in this save before opening, so it appears once per save rather than once per installation.
         WelcomeShownThisSave = true;
-        Helper.Data.WriteSaveData("welcome-shown", true);
+        Helper.Data.WriteSaveData("welcome-shown", "shown");
 
         string? keyName = Config.OpenMenuKey == SButton.None ? null : Config.OpenMenuKey.ToString();
         Game1.activeClickableMenu = new WelcomeMenu(keyName);
