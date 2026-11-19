@@ -1,17 +1,18 @@
 # Bentley's Advertising
 
-A Stardew Valley SMAPI mod by Bentley Playz. **Version 1.0.3.**
+A Stardew Valley SMAPI mod by Bentley Playz. **Version 1.0.4.**
 
 Pelican Town's businesses now compete for your attention: randomized advertisement popups appear on a timer, advertising letters turn up in your mailbox, and you can spend gold on temporary ad-free subscriptions.
 
 ## Testing
 
-The 1.0.3 build contains the advertising gameplay, mailbox letters, subscription shop, draggable AD button, per-save play-time tracking, and the developer menu integrated into the same mod. Developer mode is disabled by default. The temporary screenshot collection feature is removed. Install only this mod folder; no companion Dev Tools mod is needed.
+The 1.0.4 build contains the advertising gameplay, mailbox letters, subscription shop, draggable AD button, per-save play-time tracking, and the developer menu integrated into the same mod. Developer mode is disabled by default. The temporary screenshot collection feature is removed. Install only this mod folder; no companion Dev Tools mod is needed.
 
 ## Installation
 
-1. Install the game and [SMAPI](https://smapi.io) (on Android, use a SMAPI launcher for Android). The mod needs SMAPI 4.3.0 or newer.
-2. Download the release ZIP (`BentleyPlayz.Advertising 1.0.3.zip`) and extract it.
+1. Install the game and [SMAPI](https://smapi.io) (on Android, use a SMAPI launcher for Android). The mod needs SMAPI 4.3.0 or newer and **Content Patcher**. Content Patcher is a required dependency; SMAPI will skip loading this mod if it is missing.
+2. Generic Mod Config Menu (GMCM) is optional, but supported. If installed, Bentley's Advertising appears in GMCM and its settings can be changed there from the title screen or in-game options.
+2. Download the release ZIP (`BentleyPlayz.Advertising 1.0.4.zip`) and extract it.
 3. Copy the `BentleyPlayz.Advertising` folder into your SMAPI `Mods` folder (your launcher shows where that is on Android).
 4. Start the game through SMAPI. A welcome screen appears the first time you load a save.
 
@@ -62,6 +63,8 @@ Open the AD menu to see the time until the next ad, your gold, every offer's pri
 "Play time" is time you are actually playing; it does not run while the game is closed or in the background. Prices and offers can be changed in `advertisements.json`.
 
 ## Configuration
+
+All settings are registered in Generic Mod Config Menu when GMCM is installed. The menu supports live configuration changes and includes the developer-mode controls. GMCM is optional; without it, `config.json` is still created and can be edited manually.
 
 `config.json` is created the first time the game runs with the mod:
 
