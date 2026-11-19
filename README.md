@@ -6,7 +6,7 @@ Pelican Town's businesses now compete for your attention: randomized advertiseme
 
 ## Testing
 
-The 1.0.3 build contains the advertising gameplay, mailbox letters, subscription shop, draggable AD button, per-save play-time tracking, and the developer menu integrated into the same mod. Developer mode is disabled by default. The temporary screenshot collection feature is removed.
+The 1.0.3 build contains the advertising gameplay, mailbox letters, subscription shop, draggable AD button, per-save play-time tracking, and the developer menu integrated into the same mod. Developer mode is disabled by default. The temporary screenshot collection feature is removed. Install only this mod folder; no companion Dev Tools mod is needed.
 
 ## Installation
 
@@ -36,7 +36,7 @@ Updating: replace the `BentleyPlayz.Advertising` folder with the new one. Your s
 | Open the AD menu | Tap or click the gold AD button | `K` (configurable, `OpenMenuKey`) |
 | Move the AD button | Press and hold the button, then drag | - |
 | Reset the AD button to its corner | AD menu > **Reset AD button** | - |
-| Open the developer menu (when enabled) | Tap the purple DEV button | `F8` (configurable, `DevOpenMenuKey`)
+| Open the developer menu (when enabled) | Tap the purple DEV button | `F8` (configurable, `DevOpenMenuKey`) |
 | Select an offer | Tap it | - |
 | Scroll offers | Drag the list or use the arrows | Mouse wheel |
 | Buy | Select an offer, tap **Buy**, then confirm | - |
