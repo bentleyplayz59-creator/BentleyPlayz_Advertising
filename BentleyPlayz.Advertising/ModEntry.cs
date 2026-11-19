@@ -20,7 +20,7 @@ public sealed class ModEntry : Mod
     private const int WelcomeDelayTicks = 120;
 
     /// <summary>Consecutive ticks the pointer must read as released; prevents Android touch-state flicker ending a drag.</summary>
-    private const int ReleaseGraceTicks = 8;
+    private static readonly int ReleaseGraceTicks = OperatingSystem.IsAndroid() ? 30 : 2;
 
     private ModConfig Config = new();
     private LocalState Local = new();
@@ -35,6 +35,7 @@ public sealed class ModEntry : Mod
     private bool ForcePopupActive;
     private SubscriptionState Subscription = new();
     private int WelcomeCountdown;
+    private bool WelcomeShownThisSave;
 
     /// <summary>Play-time seconds counted toward the next ad. Only advances while the game is actively being played.</summary>
     private double AdElapsedSeconds;
@@ -268,8 +269,10 @@ public sealed class ModEntry : Mod
         body = Regex.Replace(body, @"\n{3,}", "\n\n").Trim();
 
         // Keep the sender attribution as the final line of every generated in-game letter.
+        // Reserve several lines above the attribution so it sits near the bottom of the vanilla letter panel.
+        const string signatureGap = "\n\n\n\n\n";
         body = body.Length > 0
-            ? body + "\nSent from Bentley's Advertising."
+            ? body + signatureGap + "Sent from Bentley's Advertising."
             : "Sent from Bentley's Advertising.";
 
         body = body.Replace("^", "").Replace("\n", "^");
@@ -320,6 +323,7 @@ public sealed class ModEntry : Mod
     {
         // Everything here is stored inside the save file, so each save has its own subscription and ad timer.
         Subscription = Helper.Data.ReadSaveData<SubscriptionState>("subscription-state") ?? new SubscriptionState();
+        WelcomeShownThisSave = Helper.Data.ReadSaveData<bool?>("welcome-shown") ?? false;
         MigrateLegacySubscription();
         ResetPopupState();
         CancelButtonPress();
@@ -517,7 +521,7 @@ public sealed class ModEntry : Mod
     *********/
     private void ShowWelcomeIfNeeded()
     {
-        if (Local.WelcomeShown)
+        if (WelcomeShownThisSave)
             return;
 
         if (WelcomeCountdown > 0)
@@ -530,9 +534,9 @@ public sealed class ModEntry : Mod
         if (!Context.CanPlayerMove || Game1.activeClickableMenu != null)
             return;
 
-        // Record it as shown before opening, so it can never appear twice.
-        Local.WelcomeShown = true;
-        SaveLocalState();
+        // Record it in this save before opening, so it appears once per save rather than once per installation.
+        WelcomeShownThisSave = true;
+        Helper.Data.WriteSaveData("welcome-shown", true);
 
         string? keyName = Config.OpenMenuKey == SButton.None ? null : Config.OpenMenuKey.ToString();
         Game1.activeClickableMenu = new WelcomeMenu(keyName);
@@ -781,8 +785,12 @@ public sealed class ModEntry : Mod
 
     private void OnButtonReleased(object? sender, ButtonReleasedEventArgs e)
     {
-        if (e.Button == SButton.MouseLeft)
-            FinishPress();
+        if (e.Button == SButton.MouseLeft && Pressing)
+        {
+            // Android can emit a short-lived synthetic mouse release during a finger gesture.
+            // Defer tap completion so the following touch-position updates can still become a drag.
+            NotHeldTicks = Math.Max(NotHeldTicks, 1);
+        }
     }
 
     /// <summary>
@@ -813,8 +821,22 @@ public sealed class ModEntry : Mod
             return;
         }
 
-        // Fallback in case the release event never arrives (touch input often doesn't send one). Only counts as
-        // released after several consecutive "not held" ticks so a one-tick flicker can't end a drag.
+        // Keep the game from treating the held press as a tool swing or walk command.
+        Helper.Input.Suppress(SButton.MouseLeft);
+
+        // Process movement before release timing. Android may briefly report a synthetic mouse-up while
+        // the finger is still moving, so the grace window must not finish the gesture before drag detection.
+        Point delta = GetPointerDelta();
+        if (!Dragging)
+        {
+            int slop = Math.Max(12, GetButtonSize() / 5);
+            if (delta.X * delta.X + delta.Y * delta.Y >= slop * slop)
+                Dragging = true;
+        }
+
+        if (Dragging)
+            DragTopLeft = new Point(PressButtonTopLeft.X + delta.X, PressButtonTopLeft.Y + delta.Y);
+
         if (!IsPointerHeld())
         {
             if (++NotHeldTicks >= ReleaseGraceTicks)
@@ -827,21 +849,6 @@ public sealed class ModEntry : Mod
         {
             NotHeldTicks = 0;
         }
-
-        // Keep the game from treating the held press as a tool swing or walk command.
-        Helper.Input.Suppress(SButton.MouseLeft);
-
-        Point delta = GetPointerDelta();
-        if (!Dragging)
-        {
-            int slop = Math.Max(12, GetButtonSize() / 5);
-            if (delta.X * delta.X + delta.Y * delta.Y < slop * slop)
-                return;
-
-            Dragging = true;
-        }
-
-        DragTopLeft = new Point(PressButtonTopLeft.X + delta.X, PressButtonTopLeft.Y + delta.Y);
     }
 
     private void FinishPress()
