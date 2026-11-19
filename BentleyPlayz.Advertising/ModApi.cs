@@ -32,7 +32,7 @@ public interface IBentleysAdvertisingApi
     string GetStatusText();
 }
 
-internal sealed class BentleysAdvertisingApi : IBentleysAdvertisingApi
+public sealed class BentleysAdvertisingApi : IBentleysAdvertisingApi
 {
     private readonly ModEntry Mod;
 
