@@ -1,17 +1,17 @@
 # Bentley's Advertising
 
-A Stardew Valley SMAPI mod by Bentley Playz. **Version 1.0.1.**
+A Stardew Valley SMAPI mod by Bentley Playz. **Version 1.0.2.**
 
 Pelican Town's businesses now compete for your attention: randomized advertisement popups appear on a timer, advertising letters turn up in your mailbox, and you can spend gold on temporary ad-free subscriptions.
 
 ## Testing
 
-The existing 1.0.1 gameplay features have been tested in-game on Android, including advertisement popups, mailbox letters, subscription purchases, the scrollable subscription menu, the active-gameplay timer, and the Advertising Dev Tools integration. Automatic screenshot capture is newly added and still needs device validation.
+The public 1.0.2 build contains the advertising gameplay, mailbox letters, subscription shop, draggable AD button, and per-save play-time tracking. Development controls and the temporary screenshot collection feature have been removed.
 
 ## Installation
 
 1. Install the game and [SMAPI](https://smapi.io) (on Android, use a SMAPI launcher for Android). The mod needs SMAPI 4.3.0 or newer.
-2. Download the release ZIP (`BentleyPlayz.Advertising 1.0.1.zip`) and extract it.
+2. Download the release ZIP (`BentleyPlayz.Advertising 1.0.2.zip`) and extract it.
 3. Copy the `BentleyPlayz.Advertising` folder into your SMAPI `Mods` folder (your launcher shows where that is on Android).
 4. Start the game through SMAPI. A welcome screen appears the first time you load a save.
 
@@ -21,7 +21,6 @@ Updating: replace the `BentleyPlayz.Advertising` folder with the new one. Your s
 
 - **Randomized advertisement popups** on a timer (five minutes by default). The screen dims and a parchment box with a red ADVERTISEMENT tab shows the advertiser's name and message for a few seconds. Player movement is never blocked, and a popup that fires during a menu or cutscene waits until you can see it.
 - **Advertising letters** delivered through the in-game mailbox. Advertisers can be gated behind progression, such as the repaired bus.
-- **Automatic screenshots** of each displayed advertisement popup (including Dev Tools-forced popups) and each opened Bentley's Advertising letter. Captures use the rendered game frame and save uniquely named PNG files in the mod's `Screenshots` folder. A **TAKE SCREENSHOT** button at the top center also saves a full-screen PNG on demand; the button is hidden from the captured image.
 - **Multiple message variations** per advertiser, avoiding consecutive repeats where possible.
 - **Ad-free subscriptions** bought with in-game gold (see below), split into a **Short Duration** section at the top of the shop and longer subscriptions below. While a subscription is active no popups or letters are generated.
 - **Draggable AD button.** Defaults to the bottom-right corner; drag it anywhere on screen with a mouse or a finger. The position is saved and the button always stays fully on screen.
@@ -34,7 +33,6 @@ Updating: replace the `BentleyPlayz.Advertising` folder with the new one. Your s
 | Action | Touch / mouse | Keyboard |
 | --- | --- | --- |
 | Open the AD menu | Tap or click the gold AD button | `K` (configurable, `OpenMenuKey`) |
-| Take a full-screen screenshot | Tap **TAKE SCREENSHOT** at the top center | - |
 | Move the AD button | Press and hold the button, then drag | - |
 | Reset the AD button to its corner | AD menu > **Reset AD button** | - |
 | Select an offer | Tap it | - |
@@ -99,7 +97,6 @@ First official production release.
 - `advertisements.json`: advertiser copy, unlock conditions and subscription offers.
 - `config.json` (created on first run): player settings.
 - `local-state.json` (created on first run): AD button position and welcome-screen flag.
-- `Screenshots/` (created automatically): PNG captures of advertising popups, opened advertising letters, and manual full-screen screenshots.
 
 ## Build
 
