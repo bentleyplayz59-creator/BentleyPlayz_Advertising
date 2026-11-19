@@ -1,7 +1,7 @@
 {
   "Name": "Bentley's Advertising",
   "Author": "Bentley Playz",
-  "Version": "1.0.4",
+  "Version": "1.0.5",
   "Description": "A town-wide advertising system with optional ad-free subscriptions and built-in developer tools. Includes Generic Mod Config Menu support.",
   "UniqueID": "BentleyPlayz.Advertising",
   "EntryDll": "BentleyPlayz.Advertising.dll",
