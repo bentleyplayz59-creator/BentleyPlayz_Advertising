@@ -31,14 +31,6 @@ public interface IBentleysAdvertisingApi
     /// <summary>Gets a one-line status such as "Next ad in 3m 21s".</summary>
     string GetStatusText();
 
-    /// <summary>Describes the supported companion-mod integration features.</summary>
-    AdvertisingIntegrationInfo GetIntegrationInfo();
-
-    /// <summary>
-    /// Opens the advertising mod's own advertisement/recipient picker. The main mod owns the UI and delivery;
-    /// the companion mod only requests that the interface be opened.
-    /// </summary>
-    string? OpenAdvertisementSendMenu(string requestingModId);
 }
 
 public sealed class BentleysAdvertisingApi : IBentleysAdvertisingApi
