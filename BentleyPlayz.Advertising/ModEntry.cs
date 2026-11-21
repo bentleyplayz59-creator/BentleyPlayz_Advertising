@@ -512,7 +512,9 @@ public sealed class ModEntry : Mod
 
         List<(long Id, string Name)> targets = Helper.Multiplayer.GetConnectedPlayers()
             .Where(p => p.PlayerID != Game1.player.UniqueMultiplayerID)
-            .Select(p => (p.PlayerID, p.PlayerName))
+            .Select(p => (p.PlayerID,
+                Game1.getOnlineFarmers().FirstOrDefault(farmer => farmer.UniqueMultiplayerID == p.PlayerID)?.Name
+                    ?? $"Player {p.PlayerID}"))
             .ToList();
 
         Game1.activeClickableMenu = new AdvertisementSendMenu(advertisers, targets,
