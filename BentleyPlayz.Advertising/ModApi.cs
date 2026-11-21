@@ -3,7 +3,7 @@ namespace BentleyPlayz.Advertising;
 /// <summary>
 /// Public API other SMAPI mods can request through
 /// <c>Helper.ModRegistry.GetApi&lt;IBentleysAdvertisingApi&gt;("BentleyPlayz.Advertising")</c>.
-/// Companion mods should copy this interface and the integration info type into their own project.
+/// Companion mods can copy this interface into their own project.
 /// </summary>
 public interface IBentleysAdvertisingApi
 {
@@ -31,25 +31,6 @@ public interface IBentleysAdvertisingApi
     /// <summary>Gets a one-line status such as "Next ad in 3m 21s".</summary>
     string GetStatusText();
 
-    /// <summary>Describes the supported companion-mod integration features.</summary>
-    AdvertisingIntegrationInfo GetIntegrationInfo();
-
-    /// <summary>
-    /// Opens the advertising mod's own advertisement/recipient picker. The main mod owns the UI and delivery;
-    /// the companion mod only requests that the interface be opened.
-    /// </summary>
-    string? OpenAdvertisementSendMenu(string requestingModId);
-}
-
-/// <summary>Capability information returned to companion mods during API discovery.</summary>
-public sealed class AdvertisingIntegrationInfo
-{
-    public string ApiVersion { get; set; } = "2";
-    public bool CanOpenAdvertisementSendMenu { get; set; } = true;
-    public bool CanSendToConnectedPlayers { get; set; } = true;
-    public bool RecipientsMustHaveAdvertisingInstalled { get; set; } = true;
-    public string PopupPresentation { get; set; } = "Normal Bentley's Advertising popup";
-    public string DeliveryAuthority { get; set; } = "Host";
 }
 
 public sealed class BentleysAdvertisingApi : IBentleysAdvertisingApi
@@ -69,6 +50,4 @@ public sealed class BentleysAdvertisingApi : IBentleysAdvertisingApi
     public string? ForceLetter(string advertiserId, bool deliverNow) => this.Mod.ApiForceLetter(advertiserId, deliverNow);
     public void ClearAdFree() => this.Mod.ApiClearAdFree();
     public string GetStatusText() => this.Mod.ApiGetStatusText();
-    public AdvertisingIntegrationInfo GetIntegrationInfo() => this.Mod.ApiGetIntegrationInfo();
-    public string? OpenAdvertisementSendMenu(string requestingModId) => this.Mod.ApiOpenAdvertisementSendMenu(requestingModId);
 }
