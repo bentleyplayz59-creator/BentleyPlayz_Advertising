@@ -1,6 +1,6 @@
 # Bentley's Advertising
 
-A Stardew Valley SMAPI mod by Bentley Playz. **Version 1.0.0.**
+A Stardew Valley SMAPI mod by Bentley Playz. **Version 1.1.0 (multiplayer integration preview).**
 
 Pelican Town's businesses now compete for your attention: randomized advertisement popups appear on a timer, advertising letters turn up in your mailbox, and you can spend gold on temporary ad-free subscriptions.
 
@@ -69,6 +69,19 @@ Open the AD menu to see the time until the next ad, your gold, every offer's pri
 | `OpenMenuKey` | `K` | Keyboard shortcut for the AD menu (`None` disables it). |
 
 The AD button position and the welcome-screen flag are stored in `local-state.json` (delete it to see the welcome screen again and reset the button).
+
+## Companion-mod integration
+
+Other SMAPI mods can request the public API with `Helper.ModRegistry.GetApi<IBentleysAdvertisingApi>("BentleyPlayz.Advertising")`. Copy the public interface and `AdvertisingIntegrationInfo` type from `BentleyPlayz.Advertising/ModApi.cs` into the companion mod.
+
+Call `GetIntegrationInfo()` to discover supported features, then call `OpenAdvertisementSendMenu(ModManifest.UniqueID)`. Bentley's Advertising opens and owns its own advertiser/player picker; the companion mod doesn't need to reproduce the UI or access the advertising data files.
+
+The picker sends the selected advertiser to one connected farmhand. Client requests are routed through the host, and the recipient sees the standard Bentley's Advertising popup. The recipient must also have Bentley's Advertising installed. This integration is intended for companion mods such as a future troll menu or developer tool.
+
+## Version 1.1.0
+
+- Added a public companion-mod integration handshake and an advertising-owned send menu.
+- Added host-routed multiplayer delivery of selected advertisements to connected players as normal popups.
 
 ## Version 1.0.0
 
