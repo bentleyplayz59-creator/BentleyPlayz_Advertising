@@ -12,12 +12,17 @@ public sealed class ModEntry : Mod
 {
     private const string MailPrefix = "BentleysAdvertising_";
     private const string LocalStateFile = "local-state.json";
+    private const string PopupRequestMessage = "AdvertisementPopupRequest";
+    private const string PopupDeliveryMessage = "AdvertisementPopupDelivery";
 
     /// <summary>Gap between the AD button and the screen edge, in UI pixels.</summary>
     private const int ButtonMargin = 16;
 
     /// <summary>Ticks to wait after a save loads before the welcome screen may appear (lets the fade-in finish).</summary>
     private const int WelcomeDelayTicks = 120;
+
+    /// <summary>Consecutive ticks the pointer must read as "not held" before a press is considered released (touch input can flicker).</summary>
+    private const int ReleaseGraceTicks = 8;
 
     private ModConfig Config = new();
     private LocalState Local = new();
@@ -29,6 +34,10 @@ public sealed class ModEntry : Mod
     private double PopupSecondsRemaining;
     private double PopupTotalSeconds;
     private bool PopupPending;
+
+    /// <summary>True while a popup that was requested through the API is showing (it ignores an active ad-free subscription).</summary>
+    private bool PopupForced;
+
     private SubscriptionState Subscription = new();
     private int WelcomeCountdown;
 
@@ -38,9 +47,11 @@ public sealed class ModEntry : Mod
     // AD button press / drag state.
     private bool Pressing;
     private bool Dragging;
-    private bool PressUsesGameCoords;
-    private Point PressStart;
-    private Point GrabOffset;
+    private Point PressStartScaled;
+    private Point PressStartGame;
+    private Point PressButtonTopLeft;
+    private Point LastPointer;
+    private int NotHeldTicks;
     private Point? DragTopLeft;
 
     public override void Entry(IModHelper helper)
@@ -58,9 +69,13 @@ public sealed class ModEntry : Mod
         helper.Events.Input.ButtonPressed += OnButtonPressed;
         helper.Events.Input.ButtonReleased += OnButtonReleased;
         helper.Events.Content.AssetRequested += OnAssetRequested;
+        helper.Events.Multiplayer.ModMessageReceived += OnModMessageReceived;
 
         Monitor.Log($"Bentley's Advertising {ModManifest.Version} loaded.", LogLevel.Info);
     }
+
+    /// <summary>Exposes the public API used by companion mods such as Bentley's Advertising Dev Tools.</summary>
+    public override object? GetApi() => new BentleysAdvertisingApi(this);
 
     /*********
     ** Data loading
@@ -249,6 +264,7 @@ public sealed class ModEntry : Mod
     private void ResetPopupState()
     {
         PopupPending = false;
+        PopupForced = false;
         PopupSecondsRemaining = 0;
         PopupTotalSeconds = 0;
         CurrentAdvertiser = null;
@@ -290,10 +306,21 @@ public sealed class ModEntry : Mod
 
         if (IsAdFree())
         {
-            // Start a fresh interval when the subscription ends, and clear anything on screen.
+            // Start a fresh interval when the subscription ends, and clear anything on screen
+            // (except a popup that was explicitly requested through the API, which still runs its course).
             ResetAdClock();
             PopupPending = false;
-            PopupSecondsRemaining = 0;
+            if (PopupForced && PopupSecondsRemaining > 0)
+            {
+                if (CanShowPopupNow() && delta > 0)
+                    PopupSecondsRemaining = Math.Max(0, PopupSecondsRemaining - delta);
+            }
+            else
+            {
+                PopupSecondsRemaining = 0;
+                PopupForced = false;
+            }
+
             return;
         }
 
@@ -343,15 +370,20 @@ public sealed class ModEntry : Mod
         if (alternatives.Count > 0)
             available = alternatives;
 
-        Advertiser advertiser = available[Game1.random.Next(available.Count)];
+        ShowAdvertisement(available[Game1.random.Next(available.Count)], forced: false);
+    }
+
+    private void ShowAdvertisement(Advertiser advertiser, bool forced)
+    {
         CurrentAdvertiser = advertiser.DisplayName;
         CurrentMessage = advertiser.PopupVariations[Game1.random.Next(advertiser.PopupVariations.Count)];
         LastAdvertiserId = advertiser.Id;
         PopupTotalSeconds = Math.Clamp(Config.PopupDurationSeconds, 3, 30);
         PopupSecondsRemaining = PopupTotalSeconds;
+        PopupForced = forced;
         if (Config.PlayPopupSound)
             Game1.playSound("dwop");
-        Monitor.Log($"Showing popup from {advertiser.DisplayName}.", LogLevel.Trace);
+        Monitor.Log($"Showing popup from {advertiser.DisplayName}{(forced ? " (forced)" : "")}.", LogLevel.Trace);
     }
 
     private bool IsAdvertiserUnlocked(Advertiser advertiser) =>
@@ -363,6 +395,215 @@ public sealed class ModEntry : Mod
             "mines" or "mine" or "guild" => Game1.MasterPlayer.mailReceived.Contains("guildQuest"),
             _ => true
         };
+
+    /*********
+    ** Public API (used by companion mods)
+    *********/
+    private Advertiser? FindAdvertiser(string? advertiserId) =>
+        Ads.Advertisers.FirstOrDefault(a => string.Equals(a.Id, advertiserId, StringComparison.OrdinalIgnoreCase));
+
+    internal IReadOnlyList<string> ApiGetAdvertiserIds() =>
+        Ads.Advertisers.Select(a => a.Id).ToList();
+
+    internal string ApiGetAdvertiserName(string advertiserId) =>
+        FindAdvertiser(advertiserId)?.DisplayName ?? advertiserId;
+
+    internal int ApiGetPopupCount(string advertiserId) =>
+        FindAdvertiser(advertiserId)?.PopupVariations.Count ?? 0;
+
+    internal int ApiGetLetterCount(string advertiserId) =>
+        FindAdvertiser(advertiserId)?.MailVariations.Count ?? 0;
+
+    internal string? ApiForcePopup(string advertiserId)
+    {
+        if (!Context.IsWorldReady)
+            return "Load a save first.";
+        if (!Config.Enabled)
+            return "Bentley's Advertising is turned off in its config.";
+
+        Advertiser? advertiser = FindAdvertiser(advertiserId);
+        if (advertiser is null)
+            return "Unknown advertiser.";
+        if (advertiser.PopupVariations.Count == 0)
+            return "That advertiser has no popup text.";
+
+        ShowAdvertisement(advertiser, forced: true);
+        return null;
+    }
+
+    internal string? ApiForceLetter(string advertiserId, bool deliverNow)
+    {
+        if (!Context.IsWorldReady)
+            return "Load a save first.";
+
+        Advertiser? advertiser = FindAdvertiser(advertiserId);
+        if (advertiser is null)
+            return "Unknown advertiser.";
+        if (advertiser.MailVariations.Count == 0)
+            return "That advertiser has no letters.";
+
+        // Prefer a letter the player hasn't received yet; otherwise any letter.
+        List<int> fresh = new();
+        for (int i = 0; i < advertiser.MailVariations.Count; i++)
+        {
+            string candidate = GetMailId(advertiser.Id, i);
+            if (!Game1.player.mailReceived.Contains(candidate)
+                && !Game1.player.mailForTomorrow.Contains(candidate)
+                && !Game1.player.mailbox.Contains(candidate))
+                fresh.Add(i);
+        }
+
+        int index = fresh.Count > 0
+            ? fresh[Game1.random.Next(fresh.Count)]
+            : Game1.random.Next(advertiser.MailVariations.Count);
+        string mailId = GetMailId(advertiser.Id, index);
+
+        if (deliverNow)
+        {
+            if (!Game1.player.mailbox.Contains(mailId))
+                Game1.player.mailbox.Add(mailId);
+        }
+        else if (!Game1.player.mailForTomorrow.Contains(mailId))
+        {
+            Game1.player.mailForTomorrow.Add(mailId);
+        }
+
+        return null;
+    }
+
+    internal void ApiClearAdFree()
+    {
+        Subscription.RealTimeRemainingSeconds = null;
+        Subscription.InGameDayExpiry = null;
+        ResetAdClock();
+    }
+
+    internal string ApiGetStatusText()
+    {
+        if (!Context.IsWorldReady)
+            return "No save loaded.";
+
+        if (IsAdFree())
+        {
+            string remaining = GetRemainingText();
+            return remaining.Length > 0 ? $"Ad-free! {remaining}" : "Advertisements are currently paused.";
+        }
+
+        string next = GetNextAdText();
+        return next.Length > 0 ? next : "Ads are active.";
+    }
+
+    internal AdvertisingIntegrationInfo ApiGetIntegrationInfo() => new();
+
+    internal string? ApiOpenAdvertisementSendMenu(string requestingModId)
+    {
+        if (string.IsNullOrWhiteSpace(requestingModId))
+            return "The requesting mod ID is required.";
+        if (!Context.IsWorldReady)
+            return "Load a save first.";
+        if (!Config.Enabled)
+            return "Bentley's Advertising is turned off in its config.";
+
+        List<(string Id, string Name)> advertisers = Ads.Advertisers
+            .Where(IsAdvertiserUnlocked)
+            .Where(p => p.PopupVariations.Count > 0)
+            .Select(p => (p.Id, p.DisplayName))
+            .ToList();
+
+        List<(long Id, string Name)> targets = Helper.Multiplayer.GetConnectedPlayers()
+            .Where(p => p.PlayerID != Game1.player.UniqueMultiplayerID)
+            .Select(p => (p.PlayerID,
+                Game1.getOnlineFarmers().FirstOrDefault(farmer => farmer.UniqueMultiplayerID == p.PlayerID)?.Name
+                    ?? $"Player {p.PlayerID}"))
+            .ToList();
+
+        Game1.activeClickableMenu = new AdvertisementSendMenu(advertisers, targets,
+            (advertiserId, targetPlayerId) => SendExternalAdvertisement(requestingModId, advertiserId, targetPlayerId));
+        return null;
+    }
+
+    private void SendExternalAdvertisement(string requestingModId, string advertiserId, long targetPlayerId)
+    {
+        if (!Context.IsWorldReady || FindAdvertiser(advertiserId) is null)
+            return;
+
+        if (Context.IsMainPlayer)
+        {
+            DeliverExternalAdvertisement(advertiserId, targetPlayerId);
+            return;
+        }
+
+        Helper.Multiplayer.SendMessage(
+            new AdvertisementPopupRequest { AdvertiserId = advertiserId, TargetPlayerId = targetPlayerId, RequestingModId = requestingModId },
+            PopupRequestMessage,
+            new[] { ModManifest.UniqueID },
+            new[] { Game1.MasterPlayer.UniqueMultiplayerID });
+    }
+
+    private void OnModMessageReceived(object? sender, ModMessageReceivedEventArgs e)
+    {
+        if (e.FromModID != ModManifest.UniqueID || !Context.IsWorldReady)
+            return;
+
+        if (e.Type == PopupRequestMessage && Context.IsMainPlayer)
+        {
+            AdvertisementPopupRequest request;
+            try { request = e.ReadAs<AdvertisementPopupRequest>(); }
+            catch (Exception ex)
+            {
+                Monitor.Log($"Ignored an invalid companion advertisement request: {ex.Message}", LogLevel.Warn);
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(request.AdvertiserId) || string.IsNullOrWhiteSpace(request.RequestingModId))
+                return;
+
+            DeliverExternalAdvertisement(request.AdvertiserId, request.TargetPlayerId);
+            return;
+        }
+
+        if (e.Type == PopupDeliveryMessage && !Context.IsMainPlayer
+            && e.FromPlayerID == Game1.MasterPlayer.UniqueMultiplayerID)
+        {
+            AdvertisementPopupDelivery delivery;
+            try { delivery = e.ReadAs<AdvertisementPopupDelivery>(); }
+            catch (Exception ex)
+            {
+                Monitor.Log($"Ignored an invalid advertisement delivery message: {ex.Message}", LogLevel.Warn);
+                return;
+            }
+
+            Advertiser? advertiser = FindAdvertiser(delivery.AdvertiserId);
+            if (advertiser is not null && advertiser.PopupVariations.Count > 0)
+                ShowAdvertisement(advertiser, forced: true);
+        }
+    }
+
+    private void DeliverExternalAdvertisement(string advertiserId, long targetPlayerId)
+    {
+        Advertiser? advertiser = FindAdvertiser(advertiserId);
+        if (advertiser is null || advertiser.PopupVariations.Count == 0)
+            return;
+
+        if (targetPlayerId == Game1.player.UniqueMultiplayerID)
+        {
+            ShowAdvertisement(advertiser, forced: true);
+            return;
+        }
+
+        bool connected = Helper.Multiplayer.GetConnectedPlayers().Any(p => p.PlayerID == targetPlayerId);
+        if (!connected)
+        {
+            Monitor.Log($"Couldn't send an advertisement to player {targetPlayerId}: they aren't connected.", LogLevel.Warn);
+            return;
+        }
+
+        Helper.Multiplayer.SendMessage(
+            new AdvertisementPopupDelivery { AdvertiserId = advertiserId },
+            PopupDeliveryMessage,
+            new[] { ModManifest.UniqueID },
+            new[] { targetPlayerId });
+    }
 
     /*********
     ** Welcome screen (once per installation)
@@ -549,15 +790,27 @@ public sealed class ModEntry : Mod
         Game1.activeClickableMenu = new SubscriptionMenu(Ads.SubscriptionOffers, IsAdFree, GetRemainingText, GetNextAdText, PurchaseOffer, ResetButtonPosition);
     }
 
-    private Point GetPointer(bool useGameCoords) =>
-        useGameCoords
-            ? new Point(Game1.getMouseX(true), Game1.getMouseY(true))
-            : Helper.Input.GetCursorPosition().GetScaledScreenPixels().ToPoint();
+    /// <summary>The pointer in SMAPI's UI-scaled screen pixels.</summary>
+    private Point GetScaledPointer() =>
+        Helper.Input.GetCursorPosition().GetScaledScreenPixels().ToPoint();
+
+    /// <summary>The pointer in the same space vanilla menus use for their own clicks.</summary>
+    private static Point GetGamePointer() =>
+        new(Game1.getMouseX(true), Game1.getMouseY(true));
+
+    /// <summary>
+    /// Whether a finger/mouse button is still down. On Android a touch is reported as a left mouse press by the game
+    /// but SMAPI's own input state can read as released while the finger is held, so both are checked.
+    /// </summary>
+    private bool IsPointerHeld() =>
+        Helper.Input.IsDown(SButton.MouseLeft)
+        || Game1.input.GetMouseState().LeftButton == Microsoft.Xna.Framework.Input.ButtonState.Pressed;
 
     private void CancelButtonPress()
     {
         Pressing = false;
         Dragging = false;
+        NotHeldTicks = 0;
         DragTopLeft = null;
     }
 
@@ -589,7 +842,7 @@ public sealed class ModEntry : Mod
             return;
 
         Point scaled = e.Cursor.GetScaledScreenPixels().ToPoint();
-        Point game = new(Game1.getMouseX(true), Game1.getMouseY(true));
+        Point game = GetGamePointer();
         Rectangle hit = GetHudButtonHitArea();
         if (!hit.Contains(scaled) && !hit.Contains(game))
             return;
@@ -601,23 +854,21 @@ public sealed class ModEntry : Mod
     private void BeginPress(ButtonPressedEventArgs e)
     {
         // The button is drawn in UI space, so compare against UI-scaled coordinates. Game1.getMouseX/Y(true) is the
-        // same space vanilla menus use for their own clicks; accepting either covers any difference between them,
-        // and the one that hit is used for the rest of the press so movement stays consistent.
+        // same space vanilla menus use for their own clicks; accepting either covers any difference between them.
         Rectangle hit = GetHudButtonHitArea();
         Point scaled = e.Cursor.GetScaledScreenPixels().ToPoint();
-        Point game = new(Game1.getMouseX(true), Game1.getMouseY(true));
-        bool viaScaled = hit.Contains(scaled);
-        if (!viaScaled && !hit.Contains(game))
+        Point game = GetGamePointer();
+        if (!hit.Contains(scaled) && !hit.Contains(game))
             return;
 
-        PressUsesGameCoords = !viaScaled;
-        Point pointer = viaScaled ? scaled : game;
         Rectangle bounds = GetHudButtonBounds();
-
         Pressing = true;
         Dragging = false;
-        PressStart = pointer;
-        GrabOffset = new Point(pointer.X - bounds.X, pointer.Y - bounds.Y);
+        NotHeldTicks = 0;
+        PressStartScaled = scaled;
+        PressStartGame = game;
+        PressButtonTopLeft = new Point(bounds.X, bounds.Y);
+        LastPointer = hit.Contains(scaled) ? scaled : game;
         Helper.Input.Suppress(e.Button);
     }
 
@@ -625,6 +876,22 @@ public sealed class ModEntry : Mod
     {
         if (e.Button == SButton.MouseLeft)
             FinishPress();
+    }
+
+    /// <summary>
+    /// How far the pointer has moved since the press began. Both coordinate sources are tracked and whichever has
+    /// moved further wins, so dragging works whether the platform keeps updating SMAPI's cursor or only the game's.
+    /// </summary>
+    private Point GetPointerDelta()
+    {
+        Point scaled = GetScaledPointer();
+        Point game = GetGamePointer();
+        Point dScaled = new(scaled.X - PressStartScaled.X, scaled.Y - PressStartScaled.Y);
+        Point dGame = new(game.X - PressStartGame.X, game.Y - PressStartGame.Y);
+
+        long lenScaled = (long)dScaled.X * dScaled.X + (long)dScaled.Y * dScaled.Y;
+        long lenGame = (long)dGame.X * dGame.X + (long)dGame.Y * dGame.Y;
+        return lenScaled >= lenGame ? dScaled : dGame;
     }
 
     /// <summary>Follows the finger/cursor while a press is held, turning it into a drag once it moves far enough.</summary>
@@ -639,29 +906,35 @@ public sealed class ModEntry : Mod
             return;
         }
 
-        // Fallback in case the release event was missed.
-        if (!Helper.Input.IsDown(SButton.MouseLeft))
+        // Fallback in case the release event never arrives (touch input often doesn't send one). Only counts as
+        // released after several consecutive "not held" ticks so a one-tick flicker can't end a drag.
+        if (!IsPointerHeld())
         {
-            FinishPress();
-            return;
+            if (++NotHeldTicks >= ReleaseGraceTicks)
+            {
+                FinishPress();
+                return;
+            }
+        }
+        else
+        {
+            NotHeldTicks = 0;
         }
 
         // Keep the game from treating the held press as a tool swing or walk command.
         Helper.Input.Suppress(SButton.MouseLeft);
 
-        Point pointer = GetPointer(PressUsesGameCoords);
+        Point delta = GetPointerDelta();
         if (!Dragging)
         {
             int slop = Math.Max(12, GetButtonSize() / 5);
-            int dx = pointer.X - PressStart.X;
-            int dy = pointer.Y - PressStart.Y;
-            if (dx * dx + dy * dy < slop * slop)
+            if (delta.X * delta.X + delta.Y * delta.Y < slop * slop)
                 return;
 
             Dragging = true;
         }
 
-        DragTopLeft = new Point(pointer.X - GrabOffset.X, pointer.Y - GrabOffset.Y);
+        DragTopLeft = new Point(PressButtonTopLeft.X + delta.X, PressButtonTopLeft.Y + delta.Y);
     }
 
     private void FinishPress()
@@ -672,6 +945,7 @@ public sealed class ModEntry : Mod
         bool wasDragging = Dragging;
         Pressing = false;
         Dragging = false;
+        NotHeldTicks = 0;
 
         if (wasDragging)
         {
@@ -687,8 +961,9 @@ public sealed class ModEntry : Mod
         if (!CanUseHudButton())
             return;
 
-        // A tap: open the menu if the finger is still on the button.
-        if (GetHudButtonHitArea().Contains(GetPointer(PressUsesGameCoords)))
+        // A tap: open the menu if the finger is still on the button (checked in both coordinate spaces).
+        Rectangle hit = GetHudButtonHitArea();
+        if (hit.Contains(GetScaledPointer()) || hit.Contains(GetGamePointer()) || hit.Contains(LastPointer))
             OpenSubscriptionMenu();
     }
 
@@ -734,6 +1009,7 @@ public sealed class ModEntry : Mod
 
         PopupPending = false;
         PopupSecondsRemaining = 0;
+        PopupForced = false;
         Game1.addHUDMessage(new HUDMessage($"{offer.DisplayName} purchased!", HUDMessage.achievement_type));
         return true;
     }
@@ -816,7 +1092,7 @@ public sealed class ModEntry : Mod
     /// </summary>
     private void DrawAdvertisementPopup(SpriteBatch b)
     {
-        if (PopupSecondsRemaining <= 0 || CurrentMessage is null || IsAdFree() || !CanShowPopupNow())
+        if (PopupSecondsRemaining <= 0 || CurrentMessage is null || (IsAdFree() && !PopupForced) || !CanShowPopupNow())
             return;
 
         int viewW = Game1.uiViewport.Width;
