@@ -12,6 +12,8 @@ public sealed class ModEntry : Mod
 {
     private const string MailPrefix = "BentleysAdvertising_";
     private const string LocalStateFile = "local-state.json";
+    private const string PopupRequestMessage = "AdvertisementPopupRequest";
+    private const string PopupDeliveryMessage = "AdvertisementPopupDelivery";
 
     /// <summary>Gap between the AD button and the screen edge, in UI pixels.</summary>
     private const int ButtonMargin = 16;
@@ -67,6 +69,7 @@ public sealed class ModEntry : Mod
         helper.Events.Input.ButtonPressed += OnButtonPressed;
         helper.Events.Input.ButtonReleased += OnButtonReleased;
         helper.Events.Content.AssetRequested += OnAssetRequested;
+        helper.Events.Multiplayer.ModMessageReceived += OnModMessageReceived;
 
         Monitor.Log($"Bentley's Advertising {ModManifest.Version} loaded.", LogLevel.Info);
     }
@@ -488,6 +491,116 @@ public sealed class ModEntry : Mod
 
         string next = GetNextAdText();
         return next.Length > 0 ? next : "Ads are active.";
+    }
+
+    internal AdvertisingIntegrationInfo ApiGetIntegrationInfo() => new();
+
+    internal string? ApiOpenAdvertisementSendMenu(string requestingModId)
+    {
+        if (string.IsNullOrWhiteSpace(requestingModId))
+            return "The requesting mod ID is required.";
+        if (!Context.IsWorldReady)
+            return "Load a save first.";
+        if (!Config.Enabled)
+            return "Bentley's Advertising is turned off in its config.";
+
+        List<(string Id, string Name)> advertisers = Ads.Advertisers
+            .Where(IsAdvertiserUnlocked)
+            .Where(p => p.PopupVariations.Count > 0)
+            .Select(p => (p.Id, p.DisplayName))
+            .ToList();
+
+        List<(long Id, string Name)> targets = Helper.Multiplayer.GetConnectedPlayers()
+            .Where(p => p.PlayerID != Game1.player.UniqueMultiplayerID)
+            .Select(p => (p.PlayerID, p.PlayerName))
+            .ToList();
+
+        Game1.activeClickableMenu = new AdvertisementSendMenu(advertisers, targets,
+            (advertiserId, targetPlayerId) => SendExternalAdvertisement(requestingModId, advertiserId, targetPlayerId));
+        return null;
+    }
+
+    private void SendExternalAdvertisement(string requestingModId, string advertiserId, long targetPlayerId)
+    {
+        if (!Context.IsWorldReady || FindAdvertiser(advertiserId) is null)
+            return;
+
+        if (Context.IsMainPlayer)
+        {
+            DeliverExternalAdvertisement(advertiserId, targetPlayerId);
+            return;
+        }
+
+        Helper.Multiplayer.SendMessage(
+            new AdvertisementPopupRequest { AdvertiserId = advertiserId, TargetPlayerId = targetPlayerId, RequestingModId = requestingModId },
+            PopupRequestMessage,
+            new[] { ModManifest.UniqueID },
+            new[] { Game1.MasterPlayer.UniqueMultiplayerID });
+    }
+
+    private void OnModMessageReceived(object? sender, ModMessageReceivedEventArgs e)
+    {
+        if (e.FromModID != ModManifest.UniqueID || !Context.IsWorldReady)
+            return;
+
+        if (e.Type == PopupRequestMessage && Context.IsMainPlayer)
+        {
+            AdvertisementPopupRequest request;
+            try { request = e.ReadAs<AdvertisementPopupRequest>(); }
+            catch (Exception ex)
+            {
+                Monitor.Log($"Ignored an invalid companion advertisement request: {ex.Message}", LogLevel.Warn);
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(request.AdvertiserId) || string.IsNullOrWhiteSpace(request.RequestingModId))
+                return;
+
+            DeliverExternalAdvertisement(request.AdvertiserId, request.TargetPlayerId);
+            return;
+        }
+
+        if (e.Type == PopupDeliveryMessage && !Context.IsMainPlayer
+            && e.FromPlayerID == Game1.MasterPlayer.UniqueMultiplayerID)
+        {
+            AdvertisementPopupDelivery delivery;
+            try { delivery = e.ReadAs<AdvertisementPopupDelivery>(); }
+            catch (Exception ex)
+            {
+                Monitor.Log($"Ignored an invalid advertisement delivery message: {ex.Message}", LogLevel.Warn);
+                return;
+            }
+
+            Advertiser? advertiser = FindAdvertiser(delivery.AdvertiserId);
+            if (advertiser is not null && advertiser.PopupVariations.Count > 0)
+                ShowAdvertisement(advertiser, forced: true);
+        }
+    }
+
+    private void DeliverExternalAdvertisement(string advertiserId, long targetPlayerId)
+    {
+        Advertiser? advertiser = FindAdvertiser(advertiserId);
+        if (advertiser is null || advertiser.PopupVariations.Count == 0)
+            return;
+
+        if (targetPlayerId == Game1.player.UniqueMultiplayerID)
+        {
+            ShowAdvertisement(advertiser, forced: true);
+            return;
+        }
+
+        bool connected = Helper.Multiplayer.GetConnectedPlayers().Any(p => p.PlayerID == targetPlayerId);
+        if (!connected)
+        {
+            Monitor.Log($"Couldn't send an advertisement to player {targetPlayerId}: they aren't connected.", LogLevel.Warn);
+            return;
+        }
+
+        Helper.Multiplayer.SendMessage(
+            new AdvertisementPopupDelivery { AdvertiserId = advertiserId },
+            PopupDeliveryMessage,
+            new[] { ModManifest.UniqueID },
+            new[] { targetPlayerId });
     }
 
     /*********
