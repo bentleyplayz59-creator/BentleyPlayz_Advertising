@@ -150,7 +150,11 @@ internal sealed class AdvertisementSendMenu : IClickableMenu
             new Vector2(this.SendButton.Center.X - sendSize.X / 2, this.SendButton.Center.Y - sendSize.Y / 2),
             Game1.textColor);
 
-        this.upperRightCloseButton?.draw(b);
+        IClickableMenu.drawTextureBox(b, Game1.mouseCursors, new Rectangle(432, 439, 9, 9),
+            this.CloseButton.X, this.CloseButton.Y, this.CloseButton.Width, this.CloseButton.Height, Color.White, 4f, false);
+        Utility.drawTextWithShadow(b, "X", Game1.smallFont,
+            new Vector2(this.CloseButton.Center.X - Game1.smallFont.MeasureString("X").X / 2,
+                this.CloseButton.Center.Y - Game1.smallFont.LineSpacing / 2), Game1.textColor);
         this.drawMouse(b);
     }
 
